@@ -13,7 +13,12 @@ def _base_tts_engines(device: str) -> dict[str, TTSEngineConfig]:
             default_voice="af_heart",
             extra={"lang_code": "a"},
         ),
-        "chatterbox": TTSEngineConfig(enabled=False, model="chatterbox-tts", device=device),
+        "chatterbox": TTSEngineConfig(
+            enabled=False,
+            model="chatterbox-turbo",
+            device=device,
+            extra={"variant": "turbo"},
+        ),
         "dia": TTSEngineConfig(enabled=False, model="dia", device=device),
         "orpheus": TTSEngineConfig(enabled=False, model="orpheus", device=device),
         "mock": TTSEngineConfig(enabled=True, device="cpu"),

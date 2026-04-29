@@ -56,7 +56,7 @@ class TTSConfig(BaseModel):
                 default_voice="af_heart",
                 extra={"lang_code": "a"},
             ),
-            "chatterbox": TTSEngineConfig(enabled=False, model="chatterbox-tts"),
+            "chatterbox": TTSEngineConfig(enabled=False, model="chatterbox-turbo", extra={"variant": "turbo"}),
             "dia": TTSEngineConfig(enabled=False),
             "orpheus": TTSEngineConfig(enabled=False),
             "mock": TTSEngineConfig(enabled=True),

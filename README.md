@@ -78,7 +78,26 @@ winget install -e --id Gyan.FFmpeg
 winget install -e --id eSpeak-NG.eSpeak-NG
 ```
 
-Chatterbox is implemented through `chatterbox-tts` when installed and enabled in `config.yaml`. The install script only tries it with `--with-chatterbox` because it is more sensitive to Python and hardware.
+Chatterbox is implemented through `chatterbox-tts` when installed and enabled in `config.yaml`. The install script only tries it with `--with-chatterbox` because it is more sensitive to Python and hardware. The adapter supports Turbo, original English, multilingual, local checkpoint directories, and voice-prompt paths:
+
+```yaml
+tts:
+  primary: chatterbox
+  fallback: kokoro
+  engines:
+    chatterbox:
+      enabled: true
+      model: chatterbox-turbo
+      device: cuda
+      extra:
+        variant: turbo
+        voices:
+          clone: data/voices/reference.wav
+        temperature: 0.8
+        top_p: 0.95
+```
+
+Use `variant: standard` for the original English model or `variant: multilingual` with `language_id: fr`, `language_id: da`, and other Chatterbox language codes.
 
 Dia/Dia2 and Orpheus are present as optional adapters. For v1, configure their `endpoint_url` in `config.yaml` to point at a local server that returns audio bytes.
 
