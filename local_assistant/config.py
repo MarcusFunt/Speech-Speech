@@ -111,6 +111,12 @@ class ServerConfig(BaseModel):
     )
 
 
+class RuntimeConfig(BaseModel):
+    audio_upload_max_bytes: int = Field(default=15 * 1024 * 1024, ge=1024)
+    stt_timeout_s: float = Field(default=120.0, gt=0)
+    tts_timeout_s: float = Field(default=120.0, gt=0)
+
+
 class AppConfig(BaseModel):
     version: int = 1
     data_dir: str = "data"
@@ -123,6 +129,7 @@ class AppConfig(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     conversation: ConversationConfig = Field(default_factory=ConversationConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
 
 
 def _resolve_config_path(config_path: str | Path | None = None) -> Path:

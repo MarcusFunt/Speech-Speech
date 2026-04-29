@@ -1,13 +1,27 @@
+import asyncio
+import base64
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
 from local_assistant import server
 from local_assistant.conversation.manager import ConversationManager
-from local_assistant.config import AppConfig, LLMConfig, MemoryConfig, STTConfig, TTSConfig, load_config, save_config
+from local_assistant.config import (
+    AppConfig,
+    LLMConfig,
+    MemoryConfig,
+    RuntimeConfig,
+    STTConfig,
+    TTSConfig,
+    load_config,
+    save_config,
+)
 from local_assistant.hardware_probe import HardwareProfile
 from local_assistant.memory.store import MemoryStore
+from local_assistant.stt.base import TranscriptionResult
 from local_assistant.stt.faster_whisper_adapter import FasterWhisperSTTAdapter
+from local_assistant.tts.base import AudioResult
 from local_assistant.tts.manager import TTSManager
 
 
@@ -24,6 +38,26 @@ class CapturingLLM:
     async def stream_chat(self, messages, _cancel_event):
         self.messages = messages
         yield "captured."
+
+
+class SlowSTT:
+    name = "slow"
+
+    def is_available(self):
+        return True
+
+    def health_check(self):
+        return {"name": self.name, "available": True}
+
+    async def transcribe(self, _audio_bytes, filename="input.webm"):
+        await asyncio.sleep(1)
+        return TranscriptionResult(text=f"slow {filename}", backend=self.name)
+
+
+class SlowTTS:
+    async def generate(self, text, voice=None, style=None, speed=None):
+        await asyncio.sleep(1)
+        return AudioResult(audio=b"wav", engine="slow", voice=voice)
 
 
 def configure_test_services(tmp_path):
@@ -84,7 +118,143 @@ def test_real_stt_unavailable_returns_service_error(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 503
-    assert "faster-whisper is not installed" in response.json()["detail"]
+    payload = response.json()
+    assert payload["code"] == "missing_stt_package"
+    assert "faster-whisper is not installed" in payload["message"]
+
+
+def test_empty_stt_upload_returns_structured_error(tmp_path):
+    configure_test_services(tmp_path)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/stt/transcribe",
+        files={"file": ("empty.webm", b"", "audio/webm")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "empty_audio_upload"
+
+
+def test_oversized_stt_upload_returns_structured_error(tmp_path):
+    config = AppConfig(
+        stt=STTConfig(provider="mock"),
+        llm=LLMConfig(provider="mock"),
+        tts=TTSConfig(primary="mock", fallback="mock"),
+        memory=MemoryConfig(db_path=str(tmp_path / "memory.sqlite3")),
+        runtime=RuntimeConfig(audio_upload_max_bytes=1024),
+    )
+    server._services = server.create_services(config)
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/stt/transcribe",
+        files={"file": ("large.webm", b"x" * 1025, "audio/webm")},
+    )
+
+    assert response.status_code == 413
+    payload = response.json()
+    assert payload["code"] == "oversized_upload"
+    assert payload["details"]["max_bytes"] == 1024
+
+
+def test_stt_timeout_returns_structured_error(tmp_path):
+    config = AppConfig(
+        llm=LLMConfig(provider="mock"),
+        tts=TTSConfig(primary="mock", fallback="mock"),
+        memory=MemoryConfig(db_path=str(tmp_path / "memory.sqlite3")),
+        runtime=RuntimeConfig(stt_timeout_s=0.01),
+    )
+    services = server.create_services(config)
+    services.stt = SlowSTT()
+    server._services = services
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/stt/transcribe",
+        files={"file": ("sample.webm", b"not-empty-audio", "audio/webm")},
+    )
+
+    assert response.status_code == 504
+    payload = response.json()
+    assert payload["code"] == "stt_timeout"
+    assert payload["retryable"] is True
+
+
+def test_websocket_malformed_audio_payload_returns_structured_error(tmp_path):
+    configure_test_services(tmp_path)
+    client = TestClient(server.app)
+
+    with client.websocket_connect("/conversation/stream") as websocket:
+        websocket.send_json({"type": "user_audio", "audio_base64": "not base64"})
+        payload = websocket.receive_json()
+
+    assert payload["type"] == "error"
+    assert payload["code"] == "bad_websocket_payload"
+
+
+def test_websocket_oversized_audio_payload_returns_structured_error(tmp_path):
+    config = AppConfig(
+        stt=STTConfig(provider="mock"),
+        llm=LLMConfig(provider="mock"),
+        tts=TTSConfig(primary="mock", fallback="mock"),
+        memory=MemoryConfig(db_path=str(tmp_path / "memory.sqlite3")),
+        runtime=RuntimeConfig(audio_upload_max_bytes=1024),
+    )
+    server._services = server.create_services(config)
+    client = TestClient(server.app)
+
+    with client.websocket_connect("/conversation/stream") as websocket:
+        websocket.send_json({"type": "user_audio", "audio_base64": base64.b64encode(b"x" * 1025).decode("ascii")})
+        payload = websocket.receive_json()
+
+    assert payload["type"] == "error"
+    assert payload["code"] == "oversized_upload"
+    assert payload["details"]["max_bytes"] == 1024
+
+
+def test_websocket_unknown_event_type_returns_structured_error(tmp_path):
+    configure_test_services(tmp_path)
+    client = TestClient(server.app)
+
+    with client.websocket_connect("/conversation/stream") as websocket:
+        websocket.send_json({"type": "bogus"})
+        payload = websocket.receive_json()
+
+    assert payload["type"] == "error"
+    assert payload["code"] == "bad_websocket_payload"
+
+
+def test_tts_timeout_returns_structured_error(tmp_path):
+    config = AppConfig(
+        llm=LLMConfig(provider="mock"),
+        tts=TTSConfig(primary="mock", fallback="mock"),
+        memory=MemoryConfig(db_path=str(tmp_path / "memory.sqlite3")),
+        runtime=RuntimeConfig(tts_timeout_s=0.01),
+    )
+    services = server.create_services(config)
+    services.tts = SlowTTS()
+    server._services = services
+    client = TestClient(server.app)
+
+    response = client.post("/tts/generate", json={"text": "Say this."})
+
+    assert response.status_code == 504
+    payload = response.json()
+    assert payload["code"] == "tts_timeout"
+    assert payload["retryable"] is True
+
+
+def test_validation_errors_return_structured_error(tmp_path):
+    configure_test_services(tmp_path)
+    client = TestClient(server.app)
+
+    response = client.post("/conversation/message", json={"text": ""})
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["code"] == "bad_request"
+    assert payload["details"]["errors"]
 
 
 def test_memory_endpoints(tmp_path):

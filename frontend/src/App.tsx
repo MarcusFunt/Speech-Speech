@@ -182,7 +182,8 @@ export function App() {
         setState("idle");
       }
       if (event.type === "error") {
-        setError(event.message ?? "Unknown backend error");
+        const message = event.message ?? "Unknown backend error";
+        setError(event.hint ? `${message} ${event.hint}` : message);
         setState("idle");
       }
     },

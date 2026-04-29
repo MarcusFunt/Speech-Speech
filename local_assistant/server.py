@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -10,9 +11,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
+from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 
 from local_assistant.config import (
@@ -27,6 +31,7 @@ from local_assistant.config import (
     save_config,
 )
 from local_assistant.conversation.manager import ConversationManager
+from local_assistant.errors import structured_error
 from local_assistant.hardware_probe import probe_hardware
 from local_assistant.llm.manager import LLMManager
 from local_assistant.memory.store import MemoryStore
@@ -71,6 +76,7 @@ class Services:
 
 _services: Services | None = None
 _services_lock = asyncio.Lock()
+ERROR_PAYLOAD_KEYS = {"code", "message", "hint", "retryable", "details"}
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -88,6 +94,88 @@ def allowed_cors_origins() -> list[str]:
         origins.extend(AppConfig().server.cors_origins)
     origins.extend(_split_csv(os.getenv("LOCAL_ASSISTANT_CORS_ORIGINS")))
     return list(dict.fromkeys(origins))
+
+
+def api_error(
+    status_code: int,
+    code: str,
+    message: str,
+    *,
+    hint: str | None = None,
+    retryable: bool = False,
+    details: dict[str, Any] | None = None,
+) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail=structured_error(code, message, hint=hint, retryable=retryable, details=details),
+    )
+
+
+def is_structured_error_payload(value: Any) -> bool:
+    return isinstance(value, dict) and ERROR_PAYLOAD_KEYS.issubset(value.keys())
+
+
+def max_base64_chars(decoded_limit_bytes: int) -> int:
+    return ((decoded_limit_bytes + 2) // 3) * 4
+
+
+async def read_limited_upload(file: UploadFile, max_bytes: int) -> bytes:
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise api_error(
+            413,
+            "oversized_upload",
+            "Uploaded audio is too large.",
+            hint=f"Record a shorter clip or keep audio under {max_bytes} bytes.",
+            retryable=False,
+            details={"max_bytes": max_bytes},
+        )
+    return data
+
+
+def decode_limited_audio_base64(audio_base64: Any, max_bytes: int) -> bytes:
+    if not isinstance(audio_base64, str):
+        raise ValueError("audio_base64 must be a base64 string.")
+    if len(audio_base64) > max_base64_chars(max_bytes):
+        raise OverflowError("Decoded audio would exceed the configured upload limit.")
+    audio = base64.b64decode(audio_base64, validate=True)
+    if len(audio) > max_bytes:
+        raise OverflowError("Decoded audio would exceed the configured upload limit.")
+    return audio
+
+
+async def transcribe_with_timeout(services: Services, audio: bytes, filename: str) -> Any:
+    try:
+        return await asyncio.wait_for(
+            services.stt.transcribe(audio, filename=filename),
+            timeout=services.config.runtime.stt_timeout_s,
+        )
+    except asyncio.TimeoutError as exc:
+        raise api_error(
+            504,
+            "stt_timeout",
+            "Speech transcription timed out.",
+            hint="Try a shorter recording or use a smaller STT model.",
+            retryable=True,
+            details={"timeout_s": services.config.runtime.stt_timeout_s},
+        ) from exc
+
+
+async def send_ws_error(
+    websocket: WebSocket,
+    code: str,
+    message: str,
+    *,
+    hint: str | None = None,
+    retryable: bool = False,
+    details: dict[str, Any] | None = None,
+) -> None:
+    await websocket.send_json(
+        {
+            "type": "error",
+            **structured_error(code, message, hint=hint, retryable=retryable, details=details),
+        }
+    )
 
 
 def create_services(config: AppConfig) -> Services:
@@ -146,6 +234,34 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    if is_structured_error_payload(exc.detail):
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=structured_error(
+            "http_error",
+            str(exc.detail),
+            retryable=exc.status_code >= 500,
+            details={"status_code": exc.status_code},
+        ),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content=structured_error(
+            "bad_request",
+            "Request validation failed.",
+            hint="Check the request body and parameter types.",
+            details={"errors": jsonable_encoder(exc.errors())},
+        ),
+    )
+
+
 @app.get("/health")
 async def health() -> dict:
     services = await get_services()
@@ -194,15 +310,33 @@ async def reset_config() -> dict:
 @app.post("/stt/transcribe")
 async def transcribe(file: UploadFile = File(...)) -> dict:
     services = await get_services()
-    data = await file.read()
+    data = await read_limited_upload(file, services.config.runtime.audio_upload_max_bytes)
     if not data:
-        raise HTTPException(status_code=400, detail="Uploaded audio was empty")
+        raise api_error(
+            400,
+            "empty_audio_upload",
+            "Uploaded audio was empty.",
+            hint="Hold push-to-talk long enough for the browser to capture audio.",
+            retryable=True,
+        )
     try:
-        result = await services.stt.transcribe(data, filename=file.filename or "input.webm")
+        result = await transcribe_with_timeout(services, data, file.filename or "input.webm")
     except STTUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise api_error(
+            503,
+            "missing_stt_package",
+            str(exc),
+            hint="Install requirements-ml.txt or set stt.provider to mock for debug mode.",
+            retryable=False,
+        ) from exc
     except STTError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise api_error(
+            502,
+            "stt_transcription_failed",
+            str(exc),
+            hint="Check that the uploaded audio format can be decoded and that ffmpeg is installed.",
+            retryable=True,
+        ) from exc
     return {
         "text": result.text,
         "language": result.language,
@@ -238,25 +372,85 @@ async def conversation_stream(websocket: WebSocket) -> None:
             if event_type == "user_audio":
                 audio_base64 = payload.get("audio_base64", "")
                 try:
-                    audio = base64.b64decode(audio_base64)
-                except ValueError:
-                    await websocket.send_json({"type": "error", "message": "Invalid audio_base64"})
+                    audio = decode_limited_audio_base64(
+                        audio_base64,
+                        services.config.runtime.audio_upload_max_bytes,
+                    )
+                except OverflowError:
+                    await send_ws_error(
+                        websocket,
+                        "oversized_upload",
+                        "Uploaded audio is too large.",
+                        hint=(
+                            "Record a shorter clip or keep audio under "
+                            f"{services.config.runtime.audio_upload_max_bytes} bytes."
+                        ),
+                        details={"max_bytes": services.config.runtime.audio_upload_max_bytes},
+                    )
+                    continue
+                except (ValueError, binascii.Error):
+                    await send_ws_error(
+                        websocket,
+                        "bad_websocket_payload",
+                        "Invalid audio_base64 payload.",
+                        hint="Send base64-encoded audio bytes in audio_base64.",
+                    )
+                    continue
+                if not audio:
+                    await send_ws_error(
+                        websocket,
+                        "empty_audio_upload",
+                        "Uploaded audio was empty.",
+                        hint="Hold push-to-talk long enough for the browser to capture audio.",
+                        retryable=True,
+                    )
                     continue
                 await websocket.send_json({"type": "state", "state": "transcribing"})
                 try:
-                    result = await services.stt.transcribe(audio, filename=payload.get("filename") or "input.webm")
+                    result = await transcribe_with_timeout(services, audio, payload.get("filename") or "input.webm")
+                except HTTPException as exc:
+                    if is_structured_error_payload(exc.detail):
+                        await websocket.send_json({"type": "error", **exc.detail})
+                    else:
+                        await send_ws_error(websocket, "stt_error", str(exc.detail), retryable=True)
+                    continue
+                except STTUnavailableError as exc:
+                    await send_ws_error(
+                        websocket,
+                        "missing_stt_package",
+                        str(exc),
+                        hint="Install requirements-ml.txt or set stt.provider to mock for debug mode.",
+                    )
+                    continue
                 except STTError as exc:
-                    await websocket.send_json({"type": "error", "message": str(exc)})
+                    await send_ws_error(
+                        websocket,
+                        "stt_transcription_failed",
+                        str(exc),
+                        hint="Check that the uploaded audio format can be decoded and that ffmpeg is installed.",
+                        retryable=True,
+                    )
                     continue
                 user_text = result.text
             elif event_type == "user_text":
                 user_text = str(payload.get("text") or "").strip()
             else:
-                await websocket.send_json({"type": "error", "message": f"Unknown event type: {event_type}"})
+                await send_ws_error(
+                    websocket,
+                    "bad_websocket_payload",
+                    f"Unknown event type: {event_type}",
+                    hint="Send either user_text, user_audio, or interrupt events.",
+                )
                 continue
 
             if not user_text:
-                await websocket.send_json({"type": "error", "message": "No text to process"})
+                await send_ws_error(
+                    websocket,
+                    "empty_conversation_text",
+                    "No text to process.",
+                    hint="Send non-empty transcribed or typed text.",
+                    retryable=True,
+                )
                 continue
             async for event in services.conversation.run_turn(user_text):
                 await websocket.send_json(event)
@@ -267,7 +461,28 @@ async def conversation_stream(websocket: WebSocket) -> None:
 @app.post("/tts/generate")
 async def tts_generate(payload: TTSGenerateRequest) -> Response:
     services = await get_services()
-    result = await services.tts.generate(payload.text, voice=payload.voice, style=payload.style, speed=payload.speed)
+    try:
+        result = await asyncio.wait_for(
+            services.tts.generate(payload.text, voice=payload.voice, style=payload.style, speed=payload.speed),
+            timeout=services.config.runtime.tts_timeout_s,
+        )
+    except asyncio.TimeoutError as exc:
+        raise api_error(
+            504,
+            "tts_timeout",
+            "Text-to-speech generation timed out.",
+            hint="Try a shorter message or a faster TTS engine.",
+            retryable=True,
+            details={"timeout_s": services.config.runtime.tts_timeout_s},
+        ) from exc
+    except Exception as exc:
+        raise api_error(
+            502,
+            "tts_generation_failed",
+            str(exc),
+            hint="Check the configured TTS engine and its dependencies.",
+            retryable=True,
+        ) from exc
     return Response(
         content=result.audio,
         media_type=result.media_type,

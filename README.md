@@ -99,6 +99,22 @@ Policy:
 - `POST /memory`
 - `DELETE /memory/{id}`
 
+HTTP API errors and websocket error events use the same structured payload:
+
+```json
+{
+  "code": "oversized_upload",
+  "message": "Uploaded audio is too large.",
+  "hint": "Record a shorter clip or keep audio under 15728640 bytes.",
+  "retryable": false,
+  "details": {
+    "max_bytes": 15728640
+  }
+}
+```
+
+Audio uploads are limited by `runtime.audio_upload_max_bytes` in `config.yaml`. STT and TTS calls are bounded by `runtime.stt_timeout_s` and `runtime.tts_timeout_s`; timeout responses use stable error codes such as `stt_timeout` and `tts_timeout`.
+
 ## TTS Engines
 
 Kokoro is implemented through the official `kokoro` Python package when installed:

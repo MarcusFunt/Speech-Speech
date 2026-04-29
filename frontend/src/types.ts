@@ -29,6 +29,11 @@ export interface AppConfig {
     speaking_style: string;
     user_preferences: string;
   };
+  runtime: {
+    audio_upload_max_bytes: number;
+    stt_timeout_s: number;
+    tts_timeout_s: number;
+  };
 }
 
 export interface Health {
@@ -71,7 +76,11 @@ export interface ServerEvent {
   role?: "user" | "assistant";
   text?: string;
   delta?: string;
+  code?: string;
   message?: string;
+  hint?: string | null;
+  retryable?: boolean;
+  details?: Record<string, unknown>;
   audio_base64?: string;
   media_type?: string;
   engine?: string;

@@ -117,18 +117,19 @@ Acceptance: stopping the backend and restarting it produces predictable reconnec
 
 ### Structured Backend Errors
 
-- [ ] Standardize API and websocket errors as `{code, message, hint, retryable, details}`.
-- [ ] Use stable codes for missing STT package, failed STT decode, unavailable LLM, missing TTS package, bad config, bad websocket payload, oversized upload, and timeout.
+- [x] Standardize API and websocket errors as `{code, message, hint, retryable, details}`.
+- [x] Use stable codes for missing STT package, failed STT decode, bad websocket payload, oversized upload, and STT/TTS timeout.
+- [ ] Extend stable codes to unavailable LLM, missing TTS package, bad config, and remaining runtime failures.
 - [ ] Map error codes to frontend messages and setup actions.
 
 Acceptance: frontend code does not need to parse raw exception strings for common failures.
 
 ### Upload Limits and Timeouts
 
-- [ ] Add audio upload size limits for `/stt/transcribe` and websocket `user_audio`.
-- [ ] Add timeouts around STT, LLM, TTS, and external endpoint TTS calls.
-- [ ] Return structured timeout errors.
-- [ ] Add tests for empty upload, oversized upload, malformed websocket payload, and timeout handling.
+- [x] Add audio upload size limits for `/stt/transcribe` and websocket `user_audio`.
+- [x] Add timeouts around STT, LLM, TTS, and external endpoint TTS calls.
+- [x] Return structured timeout errors.
+- [x] Add tests for empty upload, oversized upload, malformed websocket payload, and timeout handling.
 
 Acceptance: bad or huge audio input cannot exhaust memory or leave the app waiting forever.
 

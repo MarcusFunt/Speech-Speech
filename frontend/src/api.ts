@@ -6,6 +6,19 @@ const defaultApiBase = window.location.port === "5173" ? "http://localhost:8000"
 export const API_BASE = configuredApiBase && configuredApiBase.length > 0 ? configuredApiBase : defaultApiBase;
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
 
+async function responseError(response: Response): Promise<Error> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const payload = (await response.json()) as { message?: string; hint?: string; detail?: unknown };
+    if (payload.message) {
+      return new Error(payload.hint ? `${payload.message} ${payload.hint}` : payload.message);
+    }
+    if (typeof payload.detail === "string") return new Error(payload.detail);
+  }
+  const text = await response.text();
+  return new Error(text || response.statusText);
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -15,8 +28,7 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     }
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw await responseError(response);
   }
   return response.json() as Promise<T>;
 }
@@ -51,8 +63,7 @@ export async function transcribe(blob: Blob): Promise<{ text: string; backend: s
   body.append("file", blob, "push-to-talk.webm");
   const response = await fetch(`${API_BASE}/stt/transcribe`, { method: "POST", body });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw await responseError(response);
   }
   return response.json();
 }

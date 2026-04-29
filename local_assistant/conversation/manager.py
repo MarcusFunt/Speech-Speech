@@ -10,6 +10,7 @@ from local_assistant.config import AppConfig
 from local_assistant.conversation.chunker import SpeechChunker
 from local_assistant.conversation.prompt import build_messages
 from local_assistant.conversation.sanitize import sanitize_for_speech
+from local_assistant.errors import AssistantError, structured_error
 from local_assistant.llm.base import LLMAdapter
 from local_assistant.memory.store import MemoryStore
 from local_assistant.tts.manager import TTSManager
@@ -88,8 +89,10 @@ class ConversationManager:
                 "turn_id": turn_id,
                 "time_to_first_audio_ms": int((first_audio_at - started_at) * 1000) if first_audio_at else None,
             }
+        except AssistantError as exc:
+            yield {"type": "error", "turn_id": turn_id, **exc.to_payload()}
         except Exception as exc:
-            yield {"type": "error", "message": str(exc), "turn_id": turn_id}
+            yield {"type": "error", "turn_id": turn_id, **structured_error("turn_failed", str(exc))}
         finally:
             yield {"type": "state", "state": "idle", "turn_id": turn_id}
 
@@ -99,7 +102,19 @@ class ConversationManager:
         spoken_chunk = sanitize_for_speech(chunk)
         if not spoken_chunk:
             return
-        result = await self.tts.generate(spoken_chunk)
+        try:
+            result = await asyncio.wait_for(
+                self.tts.generate(spoken_chunk),
+                timeout=self.config.runtime.tts_timeout_s,
+            )
+        except asyncio.TimeoutError as exc:
+            raise AssistantError(
+                "tts_timeout",
+                "Text-to-speech generation timed out.",
+                hint="Try a shorter message or a faster TTS engine.",
+                retryable=True,
+                details={"timeout_s": self.config.runtime.tts_timeout_s},
+            ) from exc
         if self._cancel_event.is_set():
             return
         yield {
