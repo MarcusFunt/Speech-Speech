@@ -42,10 +42,6 @@ class ConversationManager:
             low_latency_chars=self.config.conversation.chunker.low_latency_chars,
         )
 
-        self.memory.add_turn("user", user_text)
-        yield {"type": "state", "state": "thinking", "turn_id": turn_id}
-        yield {"type": "transcript", "role": "user", "text": user_text, "turn_id": turn_id}
-
         active_tts = self.tts.active_adapter()
         messages = build_messages(
             config=self.config,
@@ -55,6 +51,10 @@ class ConversationManager:
             recent_turns=self.memory.recent_turns(limit=self.config.conversation.max_recent_turns),
             tts_supports_nonverbals=active_tts.features.supports_nonverbals,
         )
+
+        self.memory.add_turn("user", user_text)
+        yield {"type": "state", "state": "thinking", "turn_id": turn_id}
+        yield {"type": "transcript", "role": "user", "text": user_text, "turn_id": turn_id}
 
         yield {"type": "state", "state": "speaking", "turn_id": turn_id}
         try:
@@ -80,7 +80,8 @@ class ConversationManager:
 
             assistant_text = "".join(assistant_parts).strip()
             if assistant_text:
-                self.memory.add_turn("assistant", assistant_text)
+                if not bool(getattr(self.llm, "used_fallback", False)):
+                    self.memory.add_turn("assistant", assistant_text)
                 yield {"type": "transcript", "role": "assistant", "text": assistant_text, "turn_id": turn_id}
             yield {
                 "type": "done",

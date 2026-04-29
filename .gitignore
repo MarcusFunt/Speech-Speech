@@ -1,4 +1,5 @@
 .venv/
+.codex-run/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -6,6 +7,7 @@ __pycache__/
 .ruff_cache/
 data/
 config.yaml
+config.yaml.*.bak
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/

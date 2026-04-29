@@ -9,6 +9,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
+
+from local_assistant.config import load_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +44,48 @@ def npm_command() -> list[str]:
         if path:
             return [path]
     raise SystemExit("npm not found. Install Node.js/npm before running the web frontend.")
+
+
+def http_endpoint_reachable(url: str, timeout_s: float = 1.5) -> bool:
+    try:
+        with urlopen(url, timeout=timeout_s) as response:
+            return response.status < 500
+    except (OSError, URLError):
+        return False
+
+
+def ollama_models_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/models"
+
+
+def maybe_start_ollama(creationflags: int = 0) -> subprocess.Popen | None:
+    config = load_config()
+    if config.llm.provider != "ollama":
+        return None
+    health_url = ollama_models_url(config.llm.base_url)
+    if http_endpoint_reachable(health_url):
+        print(f"Ollama:  already reachable at {health_url}")
+        return None
+    ollama = shutil.which("ollama")
+    if not ollama:
+        print("Ollama:  not found on PATH; backend will use its mock LLM fallback if the endpoint is unreachable.")
+        return None
+    process = subprocess.Popen(
+        [ollama, "serve"],
+        cwd=ROOT,
+        creationflags=creationflags,
+    )
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            print(f"Ollama:  exited with code {process.returncode}; backend may use its mock LLM fallback.")
+            return None
+        if http_endpoint_reachable(health_url):
+            print(f"Ollama:  started at {health_url}")
+            return process
+        time.sleep(0.5)
+    print("Ollama:  start requested, but the API did not become reachable before timeout.")
+    return process
 
 
 def terminate(processes: list[subprocess.Popen]) -> None:
@@ -128,6 +174,9 @@ def main() -> int:
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     processes: list[subprocess.Popen] = []
     try:
+        ollama = maybe_start_ollama(creationflags=creationflags)
+        if ollama is not None:
+            processes.append(ollama)
         backend = subprocess.Popen(
             [
                 sys.executable,

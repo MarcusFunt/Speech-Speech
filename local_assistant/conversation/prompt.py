@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from local_assistant.config import AppConfig
+from local_assistant.llm.mock import is_mock_fallback_text
 
 
 SPOKEN_RESPONSE_RULES = """You are a local voice conversation partner.
@@ -51,6 +52,8 @@ Keep the next answer concise and conversational."""
     messages: list[dict[str, str]] = [{"role": "system", "content": system}]
     for turn in recent_turns[-config.conversation.max_recent_turns :]:
         if turn["role"] in {"user", "assistant"}:
+            if turn["role"] == "assistant" and is_mock_fallback_text(turn["content"]):
+                continue
             messages.append({"role": turn["role"], "content": turn["content"]})
     messages.append({"role": "user", "content": user_text})
     return messages

@@ -1,6 +1,6 @@
 import socket
 
-from local_assistant.dev import find_free_port, port_is_free
+from local_assistant.dev import find_free_port, ollama_models_url, port_is_free
 from local_assistant.server import allowed_cors_origins
 
 
@@ -26,3 +26,8 @@ def test_allowed_cors_origins_includes_env_values(monkeypatch):
 
     assert "http://127.0.0.1:5174" in origins
     assert "http://localhost:5174" in origins
+
+
+def test_ollama_models_url_uses_configured_openai_compatible_base():
+    assert ollama_models_url("http://localhost:11434/v1") == "http://localhost:11434/v1/models"
+    assert ollama_models_url("http://localhost:11434/v1/") == "http://localhost:11434/v1/models"

@@ -2,9 +2,27 @@ from fastapi.testclient import TestClient
 import pytest
 
 from local_assistant import server
+from local_assistant.conversation.manager import ConversationManager
 from local_assistant.config import AppConfig, LLMConfig, MemoryConfig, STTConfig, TTSConfig, load_config, save_config
 from local_assistant.hardware_probe import HardwareProfile
+from local_assistant.memory.store import MemoryStore
 from local_assistant.stt.faster_whisper_adapter import FasterWhisperSTTAdapter
+from local_assistant.tts.manager import TTSManager
+
+
+class CapturingLLM:
+    name = "capturing"
+    used_fallback = False
+
+    def __init__(self):
+        self.messages = []
+
+    async def health_check(self):
+        return {"name": self.name, "available": True}
+
+    async def stream_chat(self, messages, _cancel_event):
+        self.messages = messages
+        yield "captured."
 
 
 def configure_test_services(tmp_path):
@@ -86,6 +104,25 @@ def test_mock_conversation_path(tmp_path):
     payload = response.json()
     assert "debug mode" in payload["assistant_text"]
     assert any(event["type"] == "audio_chunk" for event in payload["events"])
+
+
+@pytest.mark.asyncio
+async def test_conversation_prompt_does_not_duplicate_current_user_turn(tmp_path):
+    config = AppConfig(
+        llm=LLMConfig(provider="mock"),
+        tts=TTSConfig(primary="mock", fallback="mock"),
+        memory=MemoryConfig(db_path=str(tmp_path / "memory.sqlite3")),
+    )
+    memory = MemoryStore(tmp_path / "memory.sqlite3")
+    llm = CapturingLLM()
+    conversation = ConversationManager(config=config, memory=memory, llm=llm, tts=TTSManager(config.tts))
+
+    events = [event async for event in conversation.run_turn("current request")]
+
+    assert any(event["type"] == "done" for event in events)
+    assert [message for message in llm.messages if message["content"] == "current request"] == [
+        {"role": "user", "content": "current request"}
+    ]
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ class LLMManager(LLMAdapter):
             self.primary = MockLLMAdapter()
         self.fallback = MockLLMAdapter()
         self.last_error: str | None = None
+        self.used_fallback = False
 
     async def health_check(self) -> dict:
         primary = await self.primary.health_check()
@@ -33,13 +34,16 @@ class LLMManager(LLMAdapter):
         }
 
     async def stream_chat(self, messages: list[dict[str, str]], cancel_event) -> AsyncIterator[str]:
+        self.used_fallback = False
         try:
             async for delta in self.primary.stream_chat(messages, cancel_event):
                 yield delta
+            self.last_error = None
             return
         except Exception as exc:
             self.last_error = str(exc)
             if cancel_event.is_set():
                 return
+        self.used_fallback = True
         async for delta in self.fallback.stream_chat(messages, cancel_event):
             yield delta
