@@ -154,9 +154,4 @@ Recommended combined dev startup:
 
 ## TODO
 
-- Add native Dia/Dia2 package integration beyond local endpoint support.
-- Add native Orpheus package integration beyond local endpoint support.
-- Add optional llama.cpp server management.
-- Add voice sample upload and Chatterbox voice cloning controls.
-- Add session summarization for long conversations.
-- Add Playwright browser tests for push-to-talk and interruption.
+See [TODO.md](TODO.md) for the detailed roadmap from the current prototype to a finished local web app.
