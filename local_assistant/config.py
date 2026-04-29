@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +11,17 @@ from pydantic import BaseModel, Field
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG_PATH = ROOT_DIR / "config.yaml"
+
+
+def _default_config_path() -> Path:
+    configured = os.getenv("LOCAL_ASSISTANT_CONFIG")
+    if not configured:
+        return ROOT_DIR / "config.yaml"
+    path = Path(configured)
+    return path if path.is_absolute() else ROOT_DIR / path
+
+
+DEFAULT_CONFIG_PATH = _default_config_path()
 
 
 class STTConfig(BaseModel):
@@ -129,10 +140,29 @@ def resolve_project_path(value: str | Path) -> Path:
 def load_config(config_path: str | Path | None = None) -> AppConfig:
     path = _resolve_config_path(config_path)
     if not path.exists():
-        return AppConfig()
+        return apply_env_overrides(AppConfig())
     with path.open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
-    return AppConfig.model_validate(raw)
+    return apply_env_overrides(AppConfig.model_validate(raw))
+
+
+def apply_env_overrides(config: AppConfig) -> AppConfig:
+    next_config = config.model_copy(deep=True)
+    if value := os.getenv("LOCAL_ASSISTANT_DATA_DIR"):
+        next_config.data_dir = value
+    if value := os.getenv("LOCAL_ASSISTANT_AUDIO_CACHE_DIR"):
+        next_config.audio_cache_dir = value
+    if value := os.getenv("LOCAL_ASSISTANT_MEMORY_DB_PATH"):
+        next_config.memory.db_path = value
+    if value := os.getenv("LOCAL_ASSISTANT_SERVER_HOST"):
+        next_config.server.host = value
+    if value := os.getenv("LOCAL_ASSISTANT_SERVER_PORT"):
+        next_config.server.port = int(value)
+    if value := os.getenv("LOCAL_ASSISTANT_LLM_BASE_URL"):
+        local_ollama_urls = {"http://localhost:11434/v1", "http://127.0.0.1:11434/v1"}
+        if next_config.llm.base_url.rstrip("/") in local_ollama_urls:
+            next_config.llm.base_url = value
+    return next_config
 
 
 def backup_config(config_path: str | Path | None = None) -> Path | None:
@@ -176,7 +206,7 @@ def ensure_config(config_path: str | Path | None = None) -> AppConfig:
         from local_assistant.hardware_probe import probe_hardware
         from local_assistant.model_selector import select_config
 
-        config = select_config(probe_hardware())
+        config = apply_env_overrides(select_config(probe_hardware()))
         save_config(config, path)
     ensure_runtime_dirs(config)
     return config

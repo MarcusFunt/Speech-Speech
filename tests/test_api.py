@@ -1,3 +1,4 @@
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
@@ -94,6 +95,22 @@ def test_memory_endpoints(tmp_path):
     memory_id = response.json()["memory"]["id"]
     assert client.get("/memory").json()["memories"][0]["content"] == "Remember this."
     assert client.delete(f"/memory/{memory_id}").status_code == 200
+
+
+def test_frontend_routes_serve_static_files_and_spa_fallback(tmp_path):
+    dist = tmp_path / "dist"
+    assets = dist / "assets"
+    assets.mkdir(parents=True)
+    (dist / "index.html").write_text("<html>app</html>", encoding="utf-8")
+    (assets / "app.js").write_text("console.log('ok');", encoding="utf-8")
+
+    app = FastAPI()
+    server.install_frontend_routes(app, dist)
+    client = TestClient(app)
+
+    assert client.get("/").text == "<html>app</html>"
+    assert client.get("/settings/profile").text == "<html>app</html>"
+    assert client.get("/assets/app.js").text == "console.log('ok');"
 
 
 def test_mock_conversation_path(tmp_path):

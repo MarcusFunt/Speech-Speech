@@ -1,0 +1,87 @@
+version: 1
+data_dir: /data
+audio_cache_dir: /data/audio
+selected_profile: low
+hardware_profile: {}
+stt:
+  provider: faster_whisper
+  model: base
+  device: cpu
+  compute_type: int8
+  language: null
+  vad_filter: false
+  mock_transcript: This is a configured mock transcription.
+  mock_language: en
+llm:
+  provider: ollama
+  base_url: http://host.docker.internal:11434/v1
+  model: qwen3:4b-instruct
+  api_key: ollama
+  timeout_s: 90.0
+  temperature: 0.8
+  max_tokens: 420
+tts:
+  primary: kokoro
+  fallback: kokoro
+  voice: af_heart
+  style: natural
+  speed: 1.0
+  engines:
+    kokoro:
+      enabled: true
+      model: Kokoro-82M
+      endpoint_url: null
+      device: cpu
+      default_voice: af_heart
+      extra:
+        lang_code: a
+    chatterbox:
+      enabled: false
+      model: chatterbox-turbo
+      endpoint_url: null
+      device: cpu
+      default_voice: null
+      extra:
+        variant: turbo
+    dia:
+      enabled: false
+      model: dia
+      endpoint_url: null
+      device: cpu
+      default_voice: null
+      extra: {}
+    orpheus:
+      enabled: false
+      model: orpheus
+      endpoint_url: null
+      device: cpu
+      default_voice: null
+      extra: {}
+    mock:
+      enabled: true
+      model: null
+      endpoint_url: null
+      device: cpu
+      default_voice: null
+      extra: {}
+memory:
+  db_path: /data/memory.sqlite3
+  assistant_name: Mira
+  personality: Warm, grounded, and direct. Respond like a thoughtful conversation partner, not a generic assistant.
+  speaking_style: Short natural spoken sentences, contractions, no markdown unless requested, mild hesitation only when it helps.
+  user_preferences: ''
+conversation:
+  max_recent_turns: 12
+  allow_nonverbals: false
+  chunker:
+    min_chars: 55
+    max_chars: 220
+    low_latency_chars: 95
+server:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins:
+    - http://localhost:8000
+    - http://127.0.0.1:8000
+    - http://localhost:5173
+    - http://127.0.0.1:5173

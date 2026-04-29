@@ -1,292 +1,358 @@
-# Speech-Speech Web App TODO
+# Speech-Speech TODO
 
-This TODO describes what it will take to move the current prototype into a finished local web app. The current state is already a working foundation: FastAPI backend, React/Vite frontend, push-to-talk UI, local STT/LLM/TTS adapters, memory storage, hardware probing, config editing, and backend tests. The remaining work is mostly about reliability, complete user flows, runtime packaging, observability, and release quality.
+Last refreshed: 2026-04-29.
 
-## Definition of Done
+This roadmap tracks the remaining work to turn the current local voice assistant prototype into a finished v1 local web app. The repo already has a working FastAPI backend, React/Vite frontend, push-to-talk capture, local STT/LLM/TTS adapters, memory storage, hardware probing, config editing, Docker packaging work, and backend tests. The remaining work is mostly about making the voice loop reliable, making failure states understandable, and shipping a repeatable runtime.
 
-A finished v1 should meet these criteria:
+## How to Use This TODO
 
-- A non-developer can install, launch, use, stop, update, and troubleshoot the app on the supported operating systems.
+- `P0` means it blocks a credible v1 demo or can corrupt user state.
+- `P1` means it is needed for a polished v1.
+- `P2` means it can ship after v1 if documented as a limitation.
+- A task is done only when the code path, UI behavior, tests, and docs agree.
+- Keep new items concrete. Prefer "add upload size limit and test 413 response" over "improve uploads".
+
+## V1 Definition of Done
+
+- A non-developer can install, launch, use, stop, update, and troubleshoot the app on Windows 10/11.
 - The default local voice loop works end to end with real microphone input, local transcription, local LLM response, local TTS playback, and interruption.
-- If optional local ML dependencies are missing, the app explains exactly what is missing and how to fix it.
-- The frontend handles connection, microphone, model, memory, and audio states clearly without needing terminal logs.
-- Settings changes are validated, persisted, and recoverable.
+- Optional local ML dependency failures are visible in the UI with exact missing tools/packages and one next action.
+- Settings changes are validated, persisted, backed up, and recoverable.
+- The frontend handles connection, microphone, model, memory, and audio states without requiring terminal logs.
 - Tests cover backend contracts, frontend voice controls, interruption, config changes, memory editing, and mock-mode end-to-end flows.
-- Release docs, installer behavior, and runtime behavior agree with each other.
+- Release docs, installer behavior, Docker behavior, and runtime behavior agree with each other.
 
-## Current Stage
+## Current Snapshot
 
-- Backend API exists in `local_assistant/server.py`.
-- Conversation streaming exists over `WS /conversation/stream`.
-- Push-to-talk frontend exists in `frontend/src/App.tsx`.
-- The frontend currently records audio, posts it to `/stt/transcribe`, then sends the transcript to the websocket as text.
-- Backend has memory, prompt construction, text chunking, LLM streaming, TTS chunk generation, and interruption hooks.
-- Hardware probing and config auto-selection exist.
-- Mock adapters make the app testable without local ML packages.
-- README documents install, dev startup, API endpoints, and some known future work.
-- Backend tests exist under `tests/`.
-- Frontend build script exists, but there are no frontend unit or browser tests yet.
+### Verified or Implemented
 
-## Phase 0 - Fix Immediate Blockers
+- [x] FastAPI backend exposes health, hardware, config, STT, conversation, TTS, interrupt, and memory endpoints.
+- [x] React/Vite frontend records push-to-talk audio and sends it through HTTP `/stt/transcribe`, then sends text over `WS /conversation/stream`.
+- [x] Backend websocket can also accept `user_audio`, although this is not the primary frontend path today.
+- [x] Conversation events include backend `turn_id` values.
+- [x] Memory profile, episodic memory, and recent turn storage exist.
+- [x] Hardware probing and config auto-selection exist.
+- [x] `install.py` exposes validation flags and has smoke tests for help/debug install paths.
+- [x] README documents the Python support matrix and Windows-first v1 runtime scope.
+- [x] Config saves create backups, config reset re-runs auto-selection, and service replacement validates before saving.
+- [x] FastAPI serves the built frontend from `frontend/dist` when present, with SPA fallback coverage.
+- [x] README links to this detailed TODO.
+- [x] Docker packaging exists in the working tree with frontend build, FastAPI serving, runtime volumes, and a container health check.
 
-- [x] Fix `install.py` before relying on the documented Quick Start.
-  - Current issue: `args.skip_checks` and `args.skip_frontend_checks` are referenced but never added to the parser.
-  - Current issue: `run_validation(...)` is referenced but not defined.
-  - Decide whether installer validation should exist now or be removed until implemented.
-  - Add tests or a smoke check that `python install.py --help` and at least `python install.py --skip-ml --skip-model-download` do not crash before doing useful work.
-- [x] Decide the supported Python matrix for v1.
-  - README recommends Python 3.11 for real local speech.
-  - `pyproject.toml` allows Python 3.10 through 3.13.
-  - Installer allows debug mode on newer Python but blocks local ML packages on Python 3.13.
-  - Document this as a support table instead of scattering it across install notes.
-- [x] Decide whether v1 supports Windows only or Windows plus macOS/Linux.
-  - The current Quick Start is Windows-oriented.
-  - If macOS/Linux are supported, add install commands and validate dependencies there.
-- [x] Make `config.yaml` recovery safe.
-  - Add backup-on-save for config changes.
-  - Add reset-to-autoselected-config action.
-  - Validate config before replacing live services.
+### Partial and Risky
 
-## Phase 1 - Stabilize the Voice Loop
+- [ ] Frontend receives `turn_id` values but does not yet ignore stale events from interrupted or previous turns.
+- [ ] Playback cleanup exists, but the UI does not distinguish backend generation from browser queue playback.
+- [ ] Interruption calls both frontend cleanup and backend interrupt, but late-event and late-audio behavior is not tested.
+- [ ] Microphone capture works on the happy path, but permission denial, missing devices, input device selection, and input level feedback are incomplete.
+- [ ] Settings UI covers only a small subset of config and has no dirty-state or validation model.
+- [ ] Memory UI is useful for early testing but still saves profile edits on blur and lacks search, tags editing, export/import, and recent-turn review.
+- [ ] LLM fallback to mock keeps demos alive but can hide a broken local model path unless the UI marks degraded behavior clearly.
+- [ ] Frontend has a build script but no unit/component/browser tests.
+- [ ] Docker is usable as a packaging path, but it still needs smoke tests, volume safety checks, and clearer host Ollama troubleshooting.
 
-- [ ] Pick one primary audio-to-conversation path.
-  - Option A: keep the current frontend flow: HTTP `/stt/transcribe` followed by websocket `user_text`.
-  - Option B: send browser audio directly to websocket `user_audio`.
-  - Remove or clearly mark the secondary path to reduce duplicate behavior and test surface.
-- [ ] Harden microphone capture.
-  - Detect unavailable microphone devices.
-  - Handle browser permission denial with actionable UI.
-  - Add input device selection.
-  - Add recording duration limits and empty-audio handling in the frontend.
-  - Add visual feedback based on real input level instead of only animated bars.
-- [ ] Harden browser audio playback.
-  - Handle autoplay restrictions.
-  - Surface playback errors without leaving the app stuck in `speaking`.
-  - Add queue length limits.
-  - Revoke object URLs in every cleanup path.
-  - Add a clear distinction between "backend is speaking" and "browser is still playing queued audio".
-- [ ] Make interruption reliable.
-  - Ensure pressing push-to-talk while audio is playing cancels queued browser audio, current backend turn, and any in-flight TTS work.
-  - Add adapter-level stop behavior where supported.
-  - Add tests proving interrupt prevents late audio chunks from being played.
-- [ ] Improve latency tracking.
-  - Track time to first transcript.
-  - Track time to first token.
-  - Track time to first audio.
-  - Track total turn time.
-  - Show these as diagnostic details, not primary UI noise.
-- [ ] Add turn IDs to frontend state handling.
-  - Ignore stale websocket events from interrupted or previous turns.
-  - Avoid state resets from old `state: idle` messages.
-  - Keep transcript and audio events associated with the correct turn.
+## P0 - Stabilize the Voice Loop
 
-## Phase 2 - Complete Runtime Integrations
+### Frontend Turn Ownership
 
-- [ ] STT: make faster-whisper production-ready.
-  - Validate model names and compute types before service startup.
-  - Add clear error messages for missing ffmpeg or bad audio formats.
-  - Add optional language selection in the UI.
-  - Add optional VAD configuration only if it improves real recordings.
-  - Cache model load status and expose loading/progress state.
-- [ ] LLM: make local provider management usable.
-  - Detect whether Ollama is installed and reachable.
-  - Detect whether the configured model is pulled.
-  - Add a UI action to pull or switch local models, or explicitly document this as CLI-only for v1.
-  - Add provider settings for OpenAI-compatible local endpoints.
-  - Avoid silent fallback to mock in normal mode unless the UI clearly marks it as degraded.
-- [ ] TTS: finish the default engine path.
-  - Validate Kokoro installation, espeak-ng, voice names, language code, and output format.
-  - Add voice preview in the UI.
-  - Add supported voice list per engine.
-  - Add speed/style validation.
-  - Show fallback engine usage in the transcript or diagnostics.
-- [ ] TTS: finish optional Chatterbox controls.
-  - Add voice sample upload.
-  - Store voice samples under a managed app data directory.
-  - Add validation for reference audio format and duration.
-  - Add UI controls for Chatterbox variant, language, temperature, top-p, and voice prompt path where relevant.
-- [ ] TTS: decide scope for Dia/Dia2 and Orpheus.
-  - Current README says they are endpoint-only TODOs.
-  - Either keep them documented as external endpoint integrations for v1 or implement native package adapters.
-  - Add health checks that distinguish disabled, configured endpoint, missing package, and runtime failure.
+- [ ] Track the active backend `turn_id` in frontend state.
+- [ ] Ignore `state`, `text_delta`, `audio_chunk`, `transcript`, `done`, and `error` events from non-active turns.
+- [ ] Do not let an old `state: idle` event reset a newer turn.
+- [ ] Clear assistant draft and queued audio only for the turn being interrupted.
+- [ ] Add tests for stale event ordering, interrupt during TTS, and reconnect during a turn.
 
-## Phase 3 - Productize the Frontend
+Acceptance: an interrupted turn cannot append text, enqueue audio, or reset state after a newer turn starts.
 
-- [ ] Split `frontend/src/App.tsx` into focused components.
+### Interruption and Playback Contract
+
+- [ ] Define the contract for pressing push-to-talk while audio is playing.
+- [ ] Cancel queued browser audio, current browser audio, backend turn generation, and in-flight TTS work.
+- [ ] Revoke object URLs in every cleanup path, including component unmount.
+- [ ] Add a queue length limit and drop policy for late audio.
+- [ ] Surface playback errors without leaving the app stuck in `speaking`.
+- [ ] Distinguish backend `speaking` from browser `playing` in state or diagnostics.
+
+Acceptance: repeated interrupt/start cycles do not leak object URLs, replay stale audio, or leave the UI stuck.
+
+### Microphone Capture Hardening
+
+- [ ] Detect missing `navigator.mediaDevices` and missing audio input devices.
+- [ ] Handle permission denial with an actionable frontend message.
+- [ ] Add input device selection.
+- [ ] Add frontend recording duration limits.
+- [ ] Treat empty or tiny audio blobs as a local validation error before calling STT.
+- [ ] Add real input-level feedback instead of purely animated waveform bars.
+
+Acceptance: denied microphone access, no microphone, and empty recording all produce clear UI states and no backend turn.
+
+### Primary Audio Path Decision
+
+- [ ] Keep HTTP `/stt/transcribe` followed by websocket `user_text` as the v1 product path unless streaming microphone audio becomes a v1 requirement.
+- [ ] Either remove websocket `user_audio` from the public API docs or mark it as backend-only experimental.
+- [ ] Ensure tests cover the supported product path first.
+
+Acceptance: README, TODO, tests, and frontend code describe one primary browser audio path.
+
+### Latency and Diagnostics
+
+- [ ] Track time to first transcript.
+- [ ] Track time to first token.
+- [x] Track time to first audio on backend conversation events.
+- [ ] Track total turn time.
+- [ ] Show latency as diagnostic detail, not primary UI noise.
+- [ ] Add per-turn diagnostic data so interrupted and stale turns can be debugged.
+
+Acceptance: a completed turn has enough timing data to identify whether STT, LLM, TTS, or browser playback caused user-visible delay.
+
+## P0 - Make Failures Understandable
+
+### Connection State
+
+- [ ] Add explicit frontend states for connecting, connected, reconnecting, offline, backend degraded, and backend incompatible.
+- [ ] Back off websocket reconnect attempts.
+- [ ] Avoid creating multiple live websocket connections after reconnects.
+- [ ] Display health/config load failures in a persistent banner.
+
+Acceptance: stopping the backend and restarting it produces predictable reconnect UI without duplicate events.
+
+### Structured Backend Errors
+
+- [ ] Standardize API and websocket errors as `{code, message, hint, retryable, details}`.
+- [ ] Use stable codes for missing STT package, failed STT decode, unavailable LLM, missing TTS package, bad config, bad websocket payload, oversized upload, and timeout.
+- [ ] Map error codes to frontend messages and setup actions.
+
+Acceptance: frontend code does not need to parse raw exception strings for common failures.
+
+### Upload Limits and Timeouts
+
+- [ ] Add audio upload size limits for `/stt/transcribe` and websocket `user_audio`.
+- [ ] Add timeouts around STT, LLM, TTS, and external endpoint TTS calls.
+- [ ] Return structured timeout errors.
+- [ ] Add tests for empty upload, oversized upload, malformed websocket payload, and timeout handling.
+
+Acceptance: bad or huge audio input cannot exhaust memory or leave the app waiting forever.
+
+### Dependency and Setup UI
+
+- [ ] Translate `/health` adapter data into setup status cards.
+- [ ] Show missing `ffmpeg`, `espeak-ng`, `faster-whisper`, `kokoro`, Chatterbox, and Ollama model states.
+- [ ] Provide one next action per missing dependency.
+- [ ] Clearly mark mock fallback/degraded mode when local providers fail.
+
+Acceptance: a user can tell from the browser why real STT, LLM, or TTS is not running.
+
+## P1 - Complete Runtime Integrations
+
+### STT: faster-whisper
+
+- [ ] Validate model names and compute types before service startup.
+- [ ] Detect and report missing `ffmpeg`.
+- [ ] Add optional language selection in the UI.
+- [ ] Add optional VAD configuration only if it improves real recordings.
+- [ ] Cache model load status and expose loading/progress state.
+- [ ] Add tests for unavailable package, bad model, decode failure, empty transcript, and configured language.
+
+### LLM: Local Provider Management
+
+- [ ] Detect whether Ollama is installed and reachable.
+- [ ] Detect whether the configured model is pulled.
+- [ ] Decide whether model pull/switch is UI-supported in v1 or CLI-only.
+- [ ] Add provider settings for OpenAI-compatible local endpoints.
+- [ ] Avoid silent mock fallback in normal mode unless the UI clearly marks degraded mode.
+- [ ] Add tests for unreachable endpoint, missing model, timeout, and fallback visibility.
+
+### TTS: Default Engine Path
+
+- [ ] Validate Kokoro package, `soundfile`, `espeak-ng`, voice names, language code, and output format.
+- [ ] Add supported voice list per engine.
+- [ ] Add voice preview in the UI.
+- [ ] Validate speed/style ranges before saving config.
+- [ ] Show fallback engine usage in transcript details or diagnostics.
+- [ ] Add tests for package missing, voice missing, generation failure, and fallback selection.
+
+### TTS: Optional Chatterbox
+
+- [ ] Add voice sample upload.
+- [ ] Store voice samples under a managed app data directory.
+- [ ] Validate reference audio format and duration.
+- [ ] Add UI controls for variant, language, temperature, top-p, and voice prompt path.
+- [ ] Add tests for missing variant package, invalid voice path, multilingual language selection, and generation kwargs.
+
+### TTS: Dia/Dia2 and Orpheus
+
+- [ ] Keep Dia/Dia2 and Orpheus documented as external endpoint integrations for v1, or implement native package adapters.
+- [ ] Add health states that distinguish disabled, configured endpoint, missing package, and runtime failure.
+- [ ] Add endpoint contract docs for request/response shape.
+- [ ] Add tests using a local fake endpoint.
+
+## P1 - Productize the Frontend
+
+### Component Structure
+
+- [ ] Split `frontend/src/App.tsx` into focused components:
   - Voice stage.
   - Transcript panel.
-  - Voice settings.
+  - Voice/settings forms.
   - Hardware/status panel.
   - Memory editor.
   - Connection/error banner.
-- [ ] Add a real connection state model.
-  - Connecting.
-  - Connected.
-  - Reconnecting.
-  - Offline.
-  - Backend degraded.
-  - Backend incompatible.
-- [ ] Improve first-run experience.
-  - Show setup status if models or tools are missing.
-  - Provide one clear next action for each missing dependency.
-  - Avoid requiring the user to inspect raw JSON health output.
-- [ ] Complete settings UI.
-  - STT provider, model, language, device, compute type.
-  - LLM provider, base URL, model, temperature, timeout, max tokens.
-  - TTS provider, fallback, voice, style, speed, engine-specific fields.
-  - Conversation chunking and max recent turns if these remain user-facing.
-  - Reset and auto-select buttons.
-- [ ] Add unsaved-change handling.
-  - Track dirty settings.
-  - Disable save until valid changes exist.
-  - Show save success/failure state.
-  - Prevent accidental loss when switching panels.
-- [ ] Improve memory UX.
-  - Edit and delete profile fields intentionally instead of saving on every blur.
-  - Add memory kind and tags.
-  - Add memory search/filter.
-  - Add recent turns viewer.
-  - Add clear conversation history action.
-  - Add export/import for memory data if local persistence is a v1 promise.
-- [ ] Make the UI accessible.
-  - Keyboard operation for all controls.
-  - Visible focus states.
-  - ARIA labels for icon-only buttons.
-  - Proper live regions for recording/processing state.
-  - Reduced-motion behavior for animated waveform.
-- [ ] Polish responsive layout.
-  - Verify the app on narrow mobile, tablet, laptop, and wide desktop.
-  - Ensure controls never overlap.
-  - Ensure long model names, errors, and memory text wrap cleanly.
-  - Keep the primary voice control usable on touch devices.
+- [ ] Keep shared turn/audio state in one owner rather than duplicating it across components.
 
-## Phase 4 - Backend Reliability and Data Safety
+### Settings UX
 
-- [ ] Add request size limits for audio uploads.
-- [ ] Add timeouts around STT, LLM, and TTS calls.
-- [ ] Add structured error codes for frontend handling.
-- [ ] Add service startup diagnostics.
-- [ ] Add config schema migration support.
-- [ ] Add SQLite migration/version tracking.
-- [ ] Add memory compaction or summarization for long-running use.
-- [ ] Add a data retention policy and user-controlled deletion.
+- [ ] Cover STT provider, model, language, device, and compute type.
+- [ ] Cover LLM provider, base URL, model, temperature, timeout, and max tokens.
+- [ ] Cover TTS provider, fallback, voice, style, speed, and engine-specific fields.
+- [ ] Cover conversation chunking and max recent turns if they remain user-facing.
+- [ ] Track dirty settings.
+- [ ] Disable save until valid changes exist.
+- [ ] Show save success/failure state.
+- [ ] Prevent accidental loss when switching panels.
+- [ ] Keep reset and auto-select actions available and clearly separated from save.
+
+### Memory UX
+
+- [ ] Save profile fields intentionally instead of on every blur.
+- [ ] Add edit/delete flows for profile and episodic memory records.
+- [ ] Add memory kind and tag controls.
+- [ ] Add memory search/filter.
+- [ ] Add recent turns viewer.
+- [ ] Add clear conversation history action.
+- [ ] Add export/import if local persistence is a v1 promise.
+
+### Accessibility and Responsive Layout
+
+- [ ] Keyboard operation for all controls.
+- [ ] Visible focus states.
+- [ ] ARIA labels for icon-only buttons.
+- [ ] Proper live regions for recording, processing, errors, and reconnect state.
+- [ ] Reduced-motion behavior for waveform animation.
+- [ ] Verify narrow mobile, tablet, laptop, and wide desktop layouts.
+- [ ] Ensure long model names, errors, and memory text wrap cleanly.
+
+Acceptance: the app remains usable with keyboard-only input, browser zoom, long text, and small screens.
+
+## P1 - Packaging and Operations
+
+### Production Launcher
+
+- [x] Serve production frontend from FastAPI when `frontend/dist` exists.
+- [ ] Add a production launch command that builds or verifies `frontend/dist`, starts backend, opens the local URL, writes logs, and shuts down cleanly.
+- [ ] Validate browser refresh and deep links if routes are added.
+- [ ] Keep Vite only for development.
+
+### Docker Hardening
+
+- [ ] Add a Docker smoke test that builds the lightweight image and checks `/health`.
+- [ ] Document host Ollama behavior on Windows, macOS, and Linux.
+- [ ] Verify config, memory, logs, uploaded voices, and temp audio persist in intended mounted directories.
+- [ ] Ensure container defaults are safe when bound to `0.0.0.0` inside Docker but exposed only as documented.
+- [ ] Add troubleshooting for slow CPU ML image builds and missing host GPU support.
+
+### Install and Update Path
+
+- [ ] Ensure installer can be rerun without corrupting config or memory.
+- [ ] Check existing dependencies and local models before downloading.
+- [ ] Leave useful logs after failed installs.
+- [ ] Add update instructions for source checkout, Python dependencies, frontend dependencies, and Docker image rebuilds.
+- [ ] Add smoke tests for missing npm, missing ffmpeg, missing espeak-ng, and port collision handling.
+
+### Data, Logs, and Diagnostics
+
+- [ ] Define app data directory rules for config, memory database, uploaded voice samples, logs, temp audio, exports, and backups.
 - [ ] Add log file output under the app data directory.
-- [ ] Add a diagnostic bundle command that collects config, health, versions, and sanitized logs.
-- [ ] Protect against malformed websocket payloads with strict request models.
-- [ ] Ensure local-only defaults bind to `127.0.0.1` and do not expose the app on the network unexpectedly.
+- [ ] Add a diagnostic bundle command that collects sanitized config, health, versions, hardware profile, and logs.
+- [ ] Add data retention rules and user-controlled deletion.
+- [ ] Add SQLite schema migration/version tracking.
+- [ ] Add config schema migration support.
 
-## Phase 5 - Testing
+## P1 - Testing
 
-- [ ] Backend unit tests.
-  - Config load/save validation and recovery.
-  - Hardware profile to config selection.
-  - STT unavailable and failed-transcription cases.
-  - LLM provider fallback behavior.
-  - TTS primary/fallback behavior.
-  - Interruption behavior.
-  - Memory CRUD, search, and turn history.
-- [ ] Backend API contract tests.
-  - `/health`
-  - `/hardware`
-  - `/config`
-  - `/config/autoselect`
-  - `/stt/transcribe`
-  - `/conversation/message`
-  - `/conversation/stream`
-  - `/tts/generate`
-  - `/audio/interrupt`
-  - `/memory`
-- [ ] Frontend unit/component tests.
-  - Voice button state transitions.
-  - Settings validation.
-  - Memory add/edit/delete.
-  - Error banner rendering.
-  - Websocket reconnect behavior.
-  - Audio queue cleanup.
-- [ ] Browser end-to-end tests with mock adapters.
-  - Launch app.
-  - Confirm health loads.
-  - Send text or fake audio.
-  - Receive assistant transcript.
-  - Receive playable audio chunk.
-  - Interrupt playback.
-  - Edit memory.
-  - Save voice settings.
-- [ ] Installer and launch tests.
-  - `install.py --help`.
-  - Debug-mode install.
-  - Combined dev launcher.
-  - Port collision handling.
-  - Missing npm handling.
-  - Missing ffmpeg/espeak handling.
-- [ ] Manual real-model test matrix.
-  - Windows CPU-only.
-  - Windows NVIDIA GPU if supported.
-  - Python 3.11 with local ML packages.
-  - Missing optional ML packages.
-  - Ollama unavailable.
-  - Browser microphone denied.
+### Backend Tests
 
-## Phase 6 - Performance
+- [ ] Config load/save validation and recovery.
+- [ ] Hardware profile to config selection.
+- [x] Mock STT transcription.
+- [x] Real STT unavailable returns service error.
+- [ ] STT failed-transcription cases.
+- [ ] LLM provider fallback behavior and degraded-mode reporting.
+- [ ] TTS primary/fallback behavior.
+- [ ] Interruption behavior.
+- [x] Memory CRUD basics.
+- [ ] Memory search and turn history.
+- [x] Static frontend route serving.
+- [ ] Structured error contracts.
+- [ ] Request size limits and timeouts.
 
-- [ ] Define latency targets for v1.
-  - Maximum acceptable time to first transcript.
-  - Maximum acceptable time to first token.
-  - Maximum acceptable time to first audio.
-  - Maximum acceptable interruption delay.
-- [ ] Optimize model loading.
-  - Lazy-load heavy adapters with clear loading state.
-  - Keep warm models where memory allows.
-  - Avoid repeated health checks that trigger expensive work.
-- [ ] Optimize TTS chunking.
-  - Tune `min_chars`, `max_chars`, and `low_latency_chars` against real TTS engines.
-  - Avoid cutting sentences unnaturally.
-  - Add backpressure if TTS generation outruns playback.
-- [ ] Optimize frontend rendering.
-  - Cap transcript size.
-  - Virtualize long memory or transcript lists if needed.
-  - Avoid storing large audio data in React state.
-- [ ] Measure memory and disk usage.
-  - SQLite growth.
-  - Audio cache growth.
-  - Model cache assumptions.
-  - Log retention.
+### Frontend Tests
 
-## Phase 7 - Packaging and Distribution
+- [ ] Add a frontend test runner.
+- [ ] Voice button state transitions.
+- [ ] Microphone permission denial.
+- [ ] Settings validation and dirty state.
+- [ ] Memory add/edit/delete.
+- [ ] Error banner rendering.
+- [ ] Websocket reconnect behavior.
+- [ ] Turn ID stale-event filtering.
+- [ ] Audio queue cleanup and interrupt behavior.
 
-- [ ] Decide final distribution format.
-  - Developer repo only.
-  - Local web app with one-command launcher.
-  - Desktop wrapper around local web app.
-  - Public hosted app, which would be a different product because the current repo is designed for local runtime.
-- [ ] Serve production frontend from the backend.
-  - Build `frontend/dist`.
-  - Add FastAPI static file serving for the built app.
-  - Keep Vite only for development.
-  - Validate browser refresh and deep links if routes are added.
-- [ ] Add a production launch command.
-  - Starts backend.
-  - Uses built frontend.
-  - Opens the local URL.
-  - Writes logs.
-  - Shuts down cleanly.
-- [ ] Make install/update repeatable.
-  - Installer can be rerun without corrupting config or memory.
-  - Dependencies can be upgraded intentionally.
-  - Local models are checked before download.
-  - Failed installs leave useful logs.
-- [ ] Add app data directory rules.
-  - Config.
-  - Memory database.
-  - Uploaded voice samples.
-  - Logs.
-  - Temporary audio.
-  - Optional exports/backups.
+### Browser End-to-End Tests
 
-## Phase 8 - Documentation
+- [ ] Launch backend and frontend in mock mode.
+- [ ] Confirm health and config load.
+- [ ] Send text or fake audio.
+- [ ] Receive assistant transcript.
+- [ ] Receive playable audio chunk.
+- [ ] Interrupt playback.
+- [ ] Edit memory.
+- [ ] Save voice settings.
+- [ ] Verify refresh loads the built app when served by FastAPI.
 
-- [ ] Replace the short README TODO with this detailed roadmap or link to it.
-- [ ] Add a user guide.
+### Manual Real-Model Matrix
+
+- [ ] Windows CPU-only.
+- [ ] Windows NVIDIA GPU if supported.
+- [ ] Python 3.11 with Kokoro and faster-whisper.
+- [ ] Missing optional ML packages.
+- [ ] Ollama unavailable.
+- [ ] Ollama model missing.
+- [ ] Browser microphone denied.
+- [ ] Docker lightweight mode.
+- [ ] Docker ML mode.
+
+## P2 - Performance and Advanced Features
+
+### Performance Targets
+
+- [ ] Define maximum acceptable time to first transcript.
+- [ ] Define maximum acceptable time to first token.
+- [ ] Define maximum acceptable time to first audio.
+- [ ] Define maximum acceptable interruption delay.
+- [ ] Measure memory, disk, and CPU/GPU use during a real session.
+
+### Runtime Optimization
+
+- [ ] Lazy-load heavy adapters with clear loading state.
+- [ ] Keep warm models where memory allows.
+- [ ] Avoid repeated health checks that trigger expensive work.
+- [ ] Tune `min_chars`, `max_chars`, and `low_latency_chars` against real TTS engines.
+- [ ] Avoid cutting sentences unnaturally.
+- [ ] Add backpressure if TTS generation outruns playback.
+- [ ] Cap transcript size and avoid storing large audio data in React state.
+
+### Optional Advanced Voice and Memory
+
+- [ ] Chatterbox voice cloning UI.
+- [ ] Native Dia/Dia2 package adapter if still desired.
+- [ ] Native Orpheus package adapter if still desired.
+- [ ] Session summarization.
+- [ ] Better memory retrieval and ranking.
+- [ ] Input device calibration.
+- [ ] Optional VAD for convenience, not as the main turn boundary.
+
+## Documentation
+
+- [ ] Add a user guide:
   - Install.
   - Start.
   - Choose microphone.
@@ -295,14 +361,15 @@ A finished v1 should meet these criteria:
   - Edit voice.
   - Edit memory.
   - Troubleshoot.
-- [ ] Add a developer guide.
+- [ ] Add a developer guide:
   - Backend setup.
   - Frontend setup.
   - Test commands.
   - Mock mode.
   - Adapter development.
   - Config schema.
-- [ ] Add troubleshooting pages for common failures.
+  - Docker development.
+- [ ] Add troubleshooting pages for common failures:
   - Python version mismatch.
   - Missing npm.
   - Missing ffmpeg.
@@ -310,18 +377,20 @@ A finished v1 should meet these criteria:
   - faster-whisper not installed.
   - Kokoro not installed.
   - Ollama unreachable.
-  - Model not pulled.
+  - Ollama model not pulled.
   - Browser microphone blocked.
   - CORS or port collision.
+  - Docker host Ollama connection.
 - [ ] Add release notes and changelog.
 - [ ] Add screenshots or short demo media after the UI is stable.
 
-## Phase 9 - Release Checklist
+## Release Checklist
 
 - [ ] All backend tests pass.
 - [ ] Frontend typecheck and build pass.
 - [ ] Browser end-to-end smoke test passes in mock mode.
 - [ ] Installer smoke test passes on a clean machine or clean VM.
+- [ ] Docker lightweight image builds and serves `/health`.
 - [ ] Real local voice loop has been manually tested.
 - [ ] Interrupt has been manually tested during TTS playback.
 - [ ] Settings save, reset, and recovery have been tested.
@@ -329,38 +398,3 @@ A finished v1 should meet these criteria:
 - [ ] Logs and diagnostics are available.
 - [ ] README Quick Start is verified from scratch.
 - [ ] Known limitations are documented.
-
-## Suggested Milestones
-
-### Milestone 1 - Reliable Developer Demo
-
-- Fix `install.py`.
-- Keep mock mode working.
-- Add frontend build verification.
-- Add basic Playwright smoke test.
-- Make websocket reconnect and stale-event handling predictable.
-
-### Milestone 2 - Real Local Voice MVP
-
-- Validate faster-whisper, Ollama, and Kokoro paths.
-- Add missing dependency UI.
-- Add voice preview and settings validation.
-- Make interruption reliable.
-- Add first-run troubleshooting guidance.
-
-### Milestone 3 - Finished Local Web App
-
-- Serve built frontend from FastAPI.
-- Add production launcher.
-- Add installer/update path.
-- Add diagnostics/logs.
-- Complete frontend settings and memory UX.
-- Finish test matrix and documentation.
-
-### Milestone 4 - Optional Advanced Voice Features
-
-- Chatterbox voice cloning UI.
-- Native Dia/Dia2 or Orpheus integration if still desired.
-- Session summarization.
-- Better memory retrieval.
-- Input device calibration and optional VAD.

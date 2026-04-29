@@ -1,6 +1,9 @@
 import type { AppConfig, Health, MemoryPayload } from "./types";
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const configuredApiBase = import.meta.env.VITE_API_BASE as string | undefined;
+const defaultApiBase = window.location.port === "5173" ? "http://localhost:8000" : window.location.origin;
+
+export const API_BASE = configuredApiBase && configuredApiBase.length > 0 ? configuredApiBase : defaultApiBase;
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {

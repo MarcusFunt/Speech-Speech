@@ -6,16 +6,20 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from starlette.staticfiles import StaticFiles
 
 from local_assistant.config import (
     AppConfig,
     DEFAULT_CONFIG_PATH,
+    ROOT_DIR,
+    apply_env_overrides,
     ensure_config,
     ensure_runtime_dirs,
     load_config,
@@ -119,6 +123,7 @@ async def get_services() -> Services:
 async def replace_services(config: AppConfig) -> Services:
     global _services
     async with _services_lock:
+        config = apply_env_overrides(config)
         next_services = create_services(config)
         save_config(config, DEFAULT_CONFIG_PATH, create_backup=True)
         _services = next_services
@@ -308,6 +313,40 @@ async def delete_memory(memory_id: int) -> dict:
     if not deleted:
         raise HTTPException(status_code=404, detail="Memory not found")
     return {"ok": True}
+
+
+def frontend_dist_dir() -> Path:
+    configured = os.getenv("LOCAL_ASSISTANT_FRONTEND_DIST")
+    if not configured:
+        return ROOT_DIR / "frontend" / "dist"
+    path = Path(configured)
+    return path if path.is_absolute() else ROOT_DIR / path
+
+
+def install_frontend_routes(application: FastAPI, dist: Path | None = None) -> None:
+    dist = dist or frontend_dist_dir()
+    index = dist / "index.html"
+    if not index.exists():
+        return
+
+    resolved_dist = dist.resolve()
+    assets = resolved_dist / "assets"
+    if assets.exists():
+        application.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
+
+    @application.get("/{path:path}", include_in_schema=False)
+    async def serve_frontend(path: str) -> FileResponse:
+        requested = (resolved_dist / path).resolve()
+        try:
+            requested.relative_to(resolved_dist)
+        except ValueError:
+            return FileResponse(index)
+        if requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(index)
+
+
+install_frontend_routes(app)
 
 
 def main() -> None:

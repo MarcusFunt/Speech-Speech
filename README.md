@@ -24,6 +24,31 @@ If you only want mock/debug mode on Python 3.13, run:
 python install.py --skip-ml
 ```
 
+## Docker
+
+The app can also run as a single Docker container. The image builds the React frontend, serves it from FastAPI, installs `ffmpeg`, `espeak-ng`, and the optional local speech packages with CPU PyTorch by default, and persists runtime config plus memory outside the container.
+
+```powershell
+docker compose up --build
+```
+
+Open <http://localhost:8000>. The first start copies `config.docker.yaml` into `docker-config/config.yaml` and stores memory/audio data in `data/`.
+
+By default, the Docker config points Ollama at the host machine through `http://host.docker.internal:11434/v1`. Start Ollama on the host before using the local LLM path:
+
+```powershell
+ollama serve
+```
+
+For a faster image build that skips Kokoro and faster-whisper, build with:
+
+```powershell
+docker compose build --build-arg INSTALL_ML=false
+docker compose up
+```
+
+That lightweight mode is useful for UI/API checks, but real STT/TTS endpoints need the ML dependencies.
+
 ## Supported Runtime
 
 | Runtime | v1 support | Notes |
