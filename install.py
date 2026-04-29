@@ -90,12 +90,13 @@ def venv_python() -> Path:
     return VENV / "bin" / "python"
 
 
-def check_system_tool(name: str, install_hint: str) -> None:
+def check_system_tool(name: str, install_hint: str) -> bool:
     if shutil.which(name):
         print(f"{name}: found")
-    else:
-        print(f"{name}: missing")
-        print(f"  {install_hint}")
+        return True
+    print(f"{name}: missing")
+    print(f"  {install_hint}")
+    return False
 
 
 def npm_command() -> list[str] | None:
@@ -198,7 +199,8 @@ def main() -> None:
     maybe_pull_ollama_model("qwen3:4b-instruct", args.skip_model_download)
     maybe_install_chatterbox(python_exe, args.with_chatterbox)
 
-    run([str(python_exe), "-m", "local_assistant.healthcheck"], check=False)
+    if not args.skip_checks:
+        run_validation(python_exe, npm, skip_frontend_checks=args.skip_frontend_checks)
 
     backend_cmd = f"{python_exe} -m local_assistant.server"
     frontend_cmd = "cd frontend; $env:VITE_API_BASE='http://127.0.0.1:8000'; npm run dev"
