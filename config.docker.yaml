@@ -21,7 +21,7 @@ llm:
   temperature: 0.8
   max_tokens: 420
 tts:
-  primary: kokoro
+  primary: chatterbox
   fallback: kokoro
   voice: af_heart
   style: natural
@@ -36,7 +36,7 @@ tts:
       extra:
         lang_code: a
     chatterbox:
-      enabled: false
+      enabled: true
       model: chatterbox-turbo
       endpoint_url: null
       device: cpu
@@ -88,4 +88,4 @@ server:
 runtime:
   audio_upload_max_bytes: 15728640
   stt_timeout_s: 120.0
-  tts_timeout_s: 120.0
+  tts_timeout_s: 600.0

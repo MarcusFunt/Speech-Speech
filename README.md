@@ -16,7 +16,7 @@ py -3.11 install.py
 
 Open the frontend URL printed by the dev launcher.
 
-The installer creates `.venv`, installs backend and frontend dependencies, scans hardware, writes `config.yaml`, checks local tools, and uses Ollama as the default local LLM runtime. It attempts to install Kokoro and faster-whisper, then reports unavailable optional ML packages through the health endpoint.
+The installer creates `.venv`, installs backend and frontend dependencies, scans hardware, writes `config.yaml`, checks local tools, and uses Ollama as the default local LLM runtime. It attempts to install Chatterbox, Kokoro, and faster-whisper, then reports unavailable optional ML packages through the health endpoint.
 
 If you only want mock/debug mode on Python 3.13, run:
 
@@ -40,7 +40,7 @@ By default, the Docker config points Ollama at the host machine through `http://
 ollama serve
 ```
 
-For a faster image build that skips Kokoro and faster-whisper, build with:
+For a faster image build that skips Chatterbox, Kokoro, and faster-whisper, build with:
 
 ```powershell
 docker compose build --build-arg INSTALL_ML=false
@@ -56,7 +56,7 @@ That lightweight mode is useful for UI/API checks, but real STT/TTS endpoints ne
 | Windows 10/11 | Supported | Documented install path, tested target for local speech. |
 | macOS/Linux | Source/dev mode only | The code is intended to be portable, but v1 installer validation is Windows-first until these paths are tested end to end. |
 | Python 3.10 | Supported | App and local ML packages are allowed. |
-| Python 3.11 | Recommended | Preferred path for Kokoro, faster-whisper, and Chatterbox experiments. |
+| Python 3.11 | Recommended | Preferred path for Chatterbox, Kokoro, and faster-whisper. |
 | Python 3.12 | Supported | App and local ML packages are allowed. |
 | Python 3.13 | Debug/mock only | Run `python install.py --skip-ml`; local ML packages are not installed. |
 
@@ -66,7 +66,7 @@ That lightweight mode is useful for UI/API checks, but real STT/TTS endpoints ne
 - Frontend: React + Vite + TypeScript.
 - STT: faster-whisper for real transcription, explicit mock provider for debug/test mode.
 - LLM: local OpenAI-compatible endpoint first, Ollama default, mock fallback.
-- TTS: Chatterbox when configured and available, Kokoro fallback, mock debug fallback.
+- TTS: Chatterbox by default on CPU and GPU, Kokoro fallback, mock debug fallback.
 - Memory: SQLite in `data/memory.sqlite3`.
 
 No cloud API keys are used. Runtime calls stay local.
@@ -77,10 +77,10 @@ No cloud API keys are used. Runtime calls stay local.
 
 Policy:
 
-- CPU or unknown GPU: Kokoro, faster-whisper tiny/base CPU int8, small Ollama model.
+- CPU or unknown GPU: Chatterbox on CPU, Kokoro fallback, faster-whisper tiny/base CPU int8, small Ollama model.
 - CUDA 6-8 GB: Chatterbox primary, Kokoro fallback, faster-whisper base/small, 4B-8B LLM.
 - CUDA 12+ GB: Chatterbox primary, Dia/Orpheus optional experimental, Kokoro fallback, 8B-14B LLM.
-- Apple Silicon: MPS-compatible path where available, Kokoro fallback.
+- Apple Silicon: Chatterbox on CPU, Kokoro fallback with MPS-compatible path where available.
 
 ## Backend API
 
@@ -131,7 +131,7 @@ winget install -e --id Gyan.FFmpeg
 winget install -e --id eSpeak-NG.eSpeak-NG
 ```
 
-Chatterbox is implemented through `chatterbox-tts` when installed and enabled in `config.yaml`. The install script only tries it with `--with-chatterbox` because it is more sensitive to Python and hardware. The adapter supports Turbo, original English, multilingual, local checkpoint directories, and voice-prompt paths:
+Chatterbox is implemented through `chatterbox-tts` and is the default configured TTS engine, including on CPU-only hardware. CPU generation can be slow, so the default TTS timeout is longer than the STT timeout. Kokoro remains configured as a fallback if Chatterbox is unavailable. The adapter supports Turbo, original English, multilingual, local checkpoint directories, and voice-prompt paths:
 
 ```yaml
 tts:
@@ -141,7 +141,7 @@ tts:
     chatterbox:
       enabled: true
       model: chatterbox-turbo
-      device: cuda
+      device: cpu
       extra:
         variant: turbo
         voices:

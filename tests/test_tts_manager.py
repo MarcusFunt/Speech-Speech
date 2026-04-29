@@ -2,6 +2,14 @@ from local_assistant.config import TTSConfig, TTSEngineConfig
 from local_assistant.tts.manager import TTSManager
 
 
+def test_default_tts_config_prefers_chatterbox_with_kokoro_fallback():
+    config = TTSConfig()
+    assert config.primary == "chatterbox"
+    assert config.fallback == "kokoro"
+    assert config.engines["chatterbox"].enabled is True
+    assert config.engines["chatterbox"].device == "cpu"
+
+
 def test_tts_manager_falls_back_to_mock_when_real_engines_missing():
     manager = TTSManager(
         TTSConfig(

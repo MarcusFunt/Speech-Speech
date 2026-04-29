@@ -1,3 +1,4 @@
 faster-whisper>=1.0.0
+chatterbox-tts
 kokoro>=0.9.4
 misaki[en]>=0.9.4

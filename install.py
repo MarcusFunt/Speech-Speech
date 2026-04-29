@@ -53,7 +53,7 @@ def print_ml_python_error(version: tuple[int, int] | None, executable: str) -> N
     detected = f"{version[0]}.{version[1]}" if version else "unknown"
     print(
         "\nPython 3.10, 3.11, or 3.12 is required when installing local ML packages "
-        "(faster-whisper and Kokoro)."
+        "(faster-whisper, Chatterbox, and Kokoro)."
     )
     print(f"Detected Python {detected}: {executable}")
     print("\nChoose one:")
@@ -69,7 +69,7 @@ def choose_python(*, install_ml: bool) -> list[str]:
         if current and current >= ML_MAX_PYTHON:
             print(
                 "Warning: Python 3.13 is supported only for --skip-ml debug installs. "
-                "Use Python 3.11 for Kokoro/faster-whisper."
+                "Use Python 3.11 for Chatterbox/Kokoro/faster-whisper."
             )
         return [sys.executable]
     for version in ["3.11", "3.12", "3.10"]:
@@ -125,10 +125,6 @@ def maybe_pull_ollama_model(model: str, skip: bool) -> None:
 def maybe_install_chatterbox(python_exe: Path, enabled: bool) -> None:
     if not enabled:
         return
-    version = python_version(str(python_exe))
-    if version != (3, 11):
-        print("Skipping Chatterbox install because Python 3.11 is required for the most reliable path.")
-        return
     run([str(python_exe), "-m", "pip", "install", "chatterbox-tts"], check=False)
 
 
@@ -137,7 +133,7 @@ def ensure_venv_python_supported(python_exe: Path, *, install_ml: bool) -> None:
     if install_ml and not supports_ml_python(version):
         print_ml_python_error(version, str(python_exe))
         print(
-            "\nThe existing .venv uses an incompatible Python for Kokoro. "
+            "\nThe existing .venv uses an incompatible Python for local ML packages. "
             "Rename or remove .venv, then rerun with Python 3.11."
         )
         raise SystemExit(1)
@@ -146,6 +142,7 @@ def ensure_venv_python_supported(python_exe: Path, *, install_ml: bool) -> None:
 def install_optional_ml(python_exe: Path) -> None:
     optional_groups = [
         ["faster-whisper>=1.0.0"],
+        ["chatterbox-tts"],
         ["kokoro>=0.9.4", "soundfile", "misaki[en]>=0.9.4"],
     ]
     for packages in optional_groups:
@@ -176,9 +173,9 @@ def run_validation(python_exe: Path, npm: list[str] | None, *, skip_frontend_che
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Install the local voice-to-voice assistant.")
-    parser.add_argument("--skip-ml", action="store_true", help="Skip faster-whisper and Kokoro package installation.")
+    parser.add_argument("--skip-ml", action="store_true", help="Skip faster-whisper, Chatterbox, and Kokoro package installation.")
     parser.add_argument("--skip-model-download", action="store_true", help="Do not pull Ollama models.")
-    parser.add_argument("--with-chatterbox", action="store_true", help="Try to install Chatterbox even if hardware is not ideal.")
+    parser.add_argument("--with-chatterbox", action="store_true", help="Deprecated: Chatterbox is attempted by default with local ML installs.")
     parser.add_argument("--skip-checks", action="store_true", help="Skip post-install backend and frontend validation.")
     parser.add_argument("--skip-frontend-checks", action="store_true", help="Skip the frontend build validation only.")
     args = parser.parse_args(argv)
@@ -222,7 +219,8 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     maybe_pull_ollama_model("qwen3:4b-instruct", args.skip_model_download)
-    maybe_install_chatterbox(python_exe, args.with_chatterbox)
+    if args.skip_ml:
+        maybe_install_chatterbox(python_exe, args.with_chatterbox)
 
     if not args.skip_checks:
         run_validation(python_exe, npm, skip_frontend_checks=args.skip_frontend_checks)

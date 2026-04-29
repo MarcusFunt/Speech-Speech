@@ -164,14 +164,14 @@ Acceptance: a user can tell from the browser why real STT, LLM, or TTS is not ru
 
 ### TTS: Default Engine Path
 
-- [ ] Validate Kokoro package, `soundfile`, `espeak-ng`, voice names, language code, and output format.
+- [ ] Validate Chatterbox package, `soundfile`, Kokoro fallback package, `espeak-ng`, voice names, language code, and output format.
 - [ ] Add supported voice list per engine.
 - [ ] Add voice preview in the UI.
 - [ ] Validate speed/style ranges before saving config.
 - [ ] Show fallback engine usage in transcript details or diagnostics.
 - [ ] Add tests for package missing, voice missing, generation failure, and fallback selection.
 
-### TTS: Optional Chatterbox
+### TTS: Chatterbox Voice Cloning
 
 - [ ] Add voice sample upload.
 - [ ] Store voice samples under a managed app data directory.
@@ -313,7 +313,7 @@ Acceptance: the app remains usable with keyboard-only input, browser zoom, long 
 
 - [ ] Windows CPU-only.
 - [ ] Windows NVIDIA GPU if supported.
-- [ ] Python 3.11 with Kokoro and faster-whisper.
+- [ ] Python 3.11 with Chatterbox, Kokoro, and faster-whisper.
 - [ ] Missing optional ML packages.
 - [ ] Ollama unavailable.
 - [ ] Ollama model missing.

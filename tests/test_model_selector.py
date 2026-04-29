@@ -16,11 +16,13 @@ def profile(**overrides):
     return HardwareProfile(**values)
 
 
-def test_cpu_selects_kokoro_and_small_local_stack():
+def test_cpu_selects_chatterbox_and_small_local_stack():
     config = select_config(profile())
     assert config.selected_profile == "low"
-    assert config.tts.primary == "kokoro"
+    assert config.tts.primary == "chatterbox"
     assert config.tts.fallback == "kokoro"
+    assert config.tts.engines["chatterbox"].enabled is True
+    assert config.tts.engines["chatterbox"].device == "cpu"
     assert config.stt.device == "cpu"
     assert config.llm.provider == "ollama"
 

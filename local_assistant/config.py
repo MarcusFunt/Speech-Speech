@@ -55,7 +55,7 @@ class TTSEngineConfig(BaseModel):
 
 
 class TTSConfig(BaseModel):
-    primary: str = "kokoro"
+    primary: str = "chatterbox"
     fallback: str = "kokoro"
     voice: str = "af_heart"
     style: str = "natural"
@@ -69,7 +69,12 @@ class TTSConfig(BaseModel):
                 default_voice="af_heart",
                 extra={"lang_code": "a"},
             ),
-            "chatterbox": TTSEngineConfig(enabled=False, model="chatterbox-turbo", extra={"variant": "turbo"}),
+            "chatterbox": TTSEngineConfig(
+                enabled=True,
+                model="chatterbox-turbo",
+                device="cpu",
+                extra={"variant": "turbo"},
+            ),
             "dia": TTSEngineConfig(enabled=False),
             "orpheus": TTSEngineConfig(enabled=False),
             "mock": TTSEngineConfig(enabled=True),
@@ -114,7 +119,7 @@ class ServerConfig(BaseModel):
 class RuntimeConfig(BaseModel):
     audio_upload_max_bytes: int = Field(default=15 * 1024 * 1024, ge=1024)
     stt_timeout_s: float = Field(default=120.0, gt=0)
-    tts_timeout_s: float = Field(default=120.0, gt=0)
+    tts_timeout_s: float = Field(default=600.0, gt=0)
 
 
 class AppConfig(BaseModel):

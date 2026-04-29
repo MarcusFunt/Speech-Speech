@@ -14,7 +14,7 @@ def _base_tts_engines(device: str) -> dict[str, TTSEngineConfig]:
             extra={"lang_code": "a"},
         ),
         "chatterbox": TTSEngineConfig(
-            enabled=False,
+            enabled=True,
             model="chatterbox-turbo",
             device=device,
             extra={"variant": "turbo"},
@@ -28,7 +28,7 @@ def _base_tts_engines(device: str) -> dict[str, TTSEngineConfig]:
 def select_config(profile: HardwareProfile) -> AppConfig:
     device = "cuda" if profile.gpu_backend == "cuda" and profile.cuda_available else "cpu"
     selected_profile = profile.recommended_profile
-    tts_primary = "kokoro"
+    tts_primary = "chatterbox"
     tts_fallback = "kokoro"
     engines = _base_tts_engines(device)
 
@@ -38,16 +38,12 @@ def select_config(profile: HardwareProfile) -> AppConfig:
 
     if profile.gpu_backend == "cuda" and (profile.vram_gb or 0) >= 12:
         selected_profile = "high"
-        tts_primary = "chatterbox"
-        engines["chatterbox"].enabled = True
         engines["dia"].enabled = True
         engines["orpheus"].enabled = True
         stt_model = "small"
         llm_model = "qwen3:8b"
     elif profile.gpu_backend == "cuda" and (profile.vram_gb or 0) >= 6:
         selected_profile = "medium"
-        tts_primary = "chatterbox"
-        engines["chatterbox"].enabled = True
         stt_model = "base"
         llm_model = "qwen3:4b-instruct"
     elif profile.gpu_backend == "mps":
@@ -56,7 +52,6 @@ def select_config(profile: HardwareProfile) -> AppConfig:
         stt_model = "base"
     elif profile.gpu_backend in {"rocm", "unknown"}:
         selected_profile = "low"
-        tts_primary = "kokoro"
         stt_model = "base"
     else:
         selected_profile = "low"
