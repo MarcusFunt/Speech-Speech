@@ -4,6 +4,18 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
+class STTError(RuntimeError):
+    """Base class for transcription failures that can be shown to clients."""
+
+
+class STTUnavailableError(STTError):
+    """Raised when the configured transcription backend is not installed or reachable."""
+
+
+class TranscriptionFailedError(STTError):
+    """Raised when a configured transcription backend fails while processing audio."""
+
+
 @dataclass(frozen=True)
 class TranscriptionResult:
     text: str

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -26,6 +27,7 @@ from local_assistant.hardware_probe import probe_hardware
 from local_assistant.llm.manager import LLMManager
 from local_assistant.memory.store import MemoryStore
 from local_assistant.model_selector import select_config
+from local_assistant.stt.base import STTError, STTUnavailableError
 from local_assistant.stt.faster_whisper_adapter import FasterWhisperSTTAdapter
 from local_assistant.stt.mock import MockSTTAdapter
 from local_assistant.tts.manager import TTSManager
@@ -67,6 +69,23 @@ _services: Services | None = None
 _services_lock = asyncio.Lock()
 
 
+def _split_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def allowed_cors_origins() -> list[str]:
+    origins: list[str] = []
+    try:
+        origins.extend(load_config(DEFAULT_CONFIG_PATH).server.cors_origins)
+    except Exception as exc:
+        logger.warning("Could not load configured CORS origins: %s", exc)
+        origins.extend(AppConfig().server.cors_origins)
+    origins.extend(_split_csv(os.getenv("LOCAL_ASSISTANT_CORS_ORIGINS")))
+    return list(dict.fromkeys(origins))
+
+
 def create_services(config: AppConfig) -> Services:
     ensure_runtime_dirs(config)
     memory = MemoryStore(resolve_project_path(config.memory.db_path))
@@ -78,9 +97,10 @@ def create_services(config: AppConfig) -> Services:
             "user_preferences": config.memory.user_preferences,
         }
     )
-    stt = FasterWhisperSTTAdapter(config.stt)
-    if config.stt.provider == "mock" or not stt.is_available():
-        stt = MockSTTAdapter()
+    if config.stt.provider == "mock":
+        stt = MockSTTAdapter(transcript=config.stt.mock_transcript, language=config.stt.mock_language)
+    else:
+        stt = FasterWhisperSTTAdapter(config.stt)
     llm = LLMManager(config.llm)
     tts = TTSManager(config.tts)
     conversation = ConversationManager(config=config, memory=memory, llm=llm, tts=tts)
@@ -113,7 +133,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Local Voice-to-Voice Assistant", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=allowed_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -163,7 +183,12 @@ async def transcribe(file: UploadFile = File(...)) -> dict:
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded audio was empty")
-    result = await services.stt.transcribe(data, filename=file.filename or "input.webm")
+    try:
+        result = await services.stt.transcribe(data, filename=file.filename or "input.webm")
+    except STTUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except STTError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {
         "text": result.text,
         "language": result.language,
@@ -204,7 +229,11 @@ async def conversation_stream(websocket: WebSocket) -> None:
                     await websocket.send_json({"type": "error", "message": "Invalid audio_base64"})
                     continue
                 await websocket.send_json({"type": "state", "state": "transcribing"})
-                result = await services.stt.transcribe(audio, filename=payload.get("filename") or "input.webm")
+                try:
+                    result = await services.stt.transcribe(audio, filename=payload.get("filename") or "input.webm")
+                except STTError as exc:
+                    await websocket.send_json({"type": "error", "message": str(exc)})
+                    continue
                 user_text = result.text
             elif event_type == "user_text":
                 user_text = str(payload.get("text") or "").strip()

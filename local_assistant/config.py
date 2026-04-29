@@ -18,6 +18,8 @@ class STTConfig(BaseModel):
     compute_type: str = "int8"
     language: str | None = None
     vad_filter: bool = False
+    mock_transcript: str = "This is a configured mock transcription."
+    mock_language: str | None = "en"
 
 
 class LLMConfig(BaseModel):

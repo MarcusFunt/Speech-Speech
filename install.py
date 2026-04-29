@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 VENV = ROOT / ".venv"
+ML_MIN_PYTHON = (3, 10)
+ML_MAX_PYTHON = (3, 13)
 
 
 def run(command: list[str], *, cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess:
@@ -38,18 +40,47 @@ def launcher_python(version: str) -> str | None:
         return None
 
 
-def choose_python() -> list[str]:
+def supports_ml_python(version: tuple[int, int] | None) -> bool:
+    return version is not None and ML_MIN_PYTHON <= version < ML_MAX_PYTHON
+
+
+def supports_base_python(version: tuple[int, int] | None) -> bool:
+    return version is not None and version >= ML_MIN_PYTHON
+
+
+def print_ml_python_error(version: tuple[int, int] | None, executable: str) -> None:
+    detected = f"{version[0]}.{version[1]}" if version else "unknown"
+    print(
+        "\nPython 3.10, 3.11, or 3.12 is required when installing local ML packages "
+        "(faster-whisper and Kokoro)."
+    )
+    print(f"Detected Python {detected}: {executable}")
+    print("\nChoose one:")
+    print("  1. Install Python 3.11, then rerun: py -3.11 install.py")
+    print("  2. Keep this Python for debug mode only: python install.py --skip-ml")
+
+
+def choose_python(*, install_ml: bool) -> list[str]:
     current = python_version(sys.executable)
-    if current and (3, 10) <= current <= (3, 12):
+    if supports_ml_python(current):
+        return [sys.executable]
+    if not install_ml and supports_base_python(current):
+        if current and current >= ML_MAX_PYTHON:
+            print(
+                "Warning: Python 3.13+ is supported only for --skip-ml debug installs. "
+                "Use Python 3.11 for Kokoro/faster-whisper."
+            )
         return [sys.executable]
     for version in ["3.11", "3.12", "3.10"]:
         launcher = launcher_python(version)
         if launcher:
             return launcher.split(" ")
-    print(
-        "Warning: Python 3.11 is preferred for local ML packages. "
-        f"Continuing with {sys.executable}; Kokoro/Chatterbox wheels may fail on this Python."
-    )
+    if install_ml:
+        print_ml_python_error(current, sys.executable)
+        raise SystemExit(1)
+    if not supports_base_python(current):
+        print("Python 3.10 or newer is required.")
+        raise SystemExit(1)
     return [sys.executable]
 
 
@@ -99,6 +130,17 @@ def maybe_install_chatterbox(python_exe: Path, enabled: bool) -> None:
     run([str(python_exe), "-m", "pip", "install", "chatterbox-tts"], check=False)
 
 
+def ensure_venv_python_supported(python_exe: Path, *, install_ml: bool) -> None:
+    version = python_version(str(python_exe))
+    if install_ml and not supports_ml_python(version):
+        print_ml_python_error(version, str(python_exe))
+        print(
+            "\nThe existing .venv uses an incompatible Python for Kokoro. "
+            "Rename or remove .venv, then rerun with Python 3.11."
+        )
+        raise SystemExit(1)
+
+
 def install_optional_ml(python_exe: Path) -> None:
     optional_groups = [
         ["faster-whisper>=1.0.0"],
@@ -115,20 +157,22 @@ def main() -> None:
     parser.add_argument("--with-chatterbox", action="store_true", help="Try to install Chatterbox even if hardware is not ideal.")
     args = parser.parse_args()
 
-    python_cmd = choose_python()
+    install_ml = not args.skip_ml
+    python_cmd = choose_python(install_ml=install_ml)
     if not VENV.exists():
         run([*python_cmd, "-m", "venv", str(VENV)])
     python_exe = venv_python()
+    ensure_venv_python_supported(python_exe, install_ml=install_ml)
 
     run([str(python_exe), "-m", "pip", "install", "--upgrade", "pip"])
     run([str(python_exe), "-m", "pip", "install", "-r", "requirements.txt"])
-    if not args.skip_ml:
+    if install_ml:
         install_optional_ml(python_exe)
 
-    check_system_tool("ffmpeg", "Install ffmpeg and ensure it is on PATH. Windows: winget install Gyan.FFmpeg")
+    check_system_tool("ffmpeg", "Install ffmpeg and ensure it is on PATH. Windows: winget install -e --id Gyan.FFmpeg")
     check_system_tool(
         "espeak-ng",
-        "Install espeak-ng for Kokoro G2P fallback. Windows: use the espeak-ng MSI from the official releases.",
+        "Install espeak-ng for Kokoro G2P fallback. Windows: winget install -e --id eSpeak-NG.eSpeak-NG",
     )
 
     npm = npm_command()
@@ -157,11 +201,13 @@ def main() -> None:
     run([str(python_exe), "-m", "local_assistant.healthcheck"], check=False)
 
     backend_cmd = f"{python_exe} -m local_assistant.server"
-    frontend_cmd = "cd frontend; npm run dev"
+    frontend_cmd = "cd frontend; $env:VITE_API_BASE='http://127.0.0.1:8000'; npm run dev"
+    dev_cmd = f"{python_exe} -m local_assistant.dev"
     print("\nInstall complete.")
+    print(f"Dev:      {dev_cmd}")
     print(f"Backend:  {backend_cmd}")
     print(f"Frontend: {frontend_cmd}")
-    print("Open:     http://127.0.0.1:5173")
+    print("Open:     Run the Dev command and use the URL it prints.")
 
 
 if __name__ == "__main__":

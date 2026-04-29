@@ -4,22 +4,31 @@ A fully local voice-to-voice assistant prototype focused on natural spoken inter
 
 ## Quick Start
 
+For real local speech on Windows, use Python 3.11. Kokoro currently publishes the needed wheels for Python 3.10-3.12, not Python 3.13.
+
 ```powershell
-python install.py
-.venv\Scripts\python -m local_assistant.server
-cd frontend
-npm run dev
+winget install -e --id Python.Python.3.11
+winget install -e --id Gyan.FFmpeg
+winget install -e --id eSpeak-NG.eSpeak-NG
+py -3.11 install.py
+.venv\Scripts\python -m local_assistant.dev
 ```
 
-Open `http://127.0.0.1:5173`.
+Open the frontend URL printed by the dev launcher.
 
-The installer creates `.venv`, installs backend and frontend dependencies, scans hardware, writes `config.yaml`, checks local tools, and uses Ollama as the default local LLM runtime. It attempts to install Kokoro and faster-whisper, then falls back gracefully if optional ML packages are unavailable.
+The installer creates `.venv`, installs backend and frontend dependencies, scans hardware, writes `config.yaml`, checks local tools, and uses Ollama as the default local LLM runtime. It attempts to install Kokoro and faster-whisper, then reports unavailable optional ML packages through the health endpoint.
+
+If you only want mock/debug mode on Python 3.13, run:
+
+```powershell
+python install.py --skip-ml
+```
 
 ## Local Runtime Defaults
 
 - Backend: Python FastAPI.
 - Frontend: React + Vite + TypeScript.
-- STT: faster-whisper first, mock fallback.
+- STT: faster-whisper for real transcription, explicit mock provider for debug/test mode.
 - LLM: local OpenAI-compatible endpoint first, Ollama default, mock fallback.
 - TTS: Chatterbox when configured and available, Kokoro fallback, mock debug fallback.
 - Memory: SQLite in `data/memory.sqlite3`.
@@ -58,10 +67,16 @@ Policy:
 Kokoro is implemented through the official `kokoro` Python package when installed:
 
 ```powershell
+py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install "kokoro>=0.9.4" soundfile "misaki[en]>=0.9.4"
 ```
 
-Kokoro also needs `espeak-ng` available on PATH for best reliability.
+Kokoro also needs `espeak-ng` available on PATH for best reliability. The app also expects `ffmpeg` on PATH for local audio tooling:
+
+```powershell
+winget install -e --id Gyan.FFmpeg
+winget install -e --id eSpeak-NG.eSpeak-NG
+```
 
 Chatterbox is implemented through `chatterbox-tts` when installed and enabled in `config.yaml`. The install script only tries it with `--with-chatterbox` because it is more sensitive to Python and hardware.
 
@@ -83,12 +98,33 @@ Backend:
 python -m local_assistant.server
 ```
 
+The backend adds any comma-separated origins in `LOCAL_ASSISTANT_CORS_ORIGINS` to the configured CORS allow-list. This is used by the dev launcher when the frontend has to move off port 5173.
+
+Mock STT is available only when configured explicitly:
+
+```yaml
+stt:
+  provider: mock
+  mock_transcript: debug transcript
+  mock_language: en
+```
+
+If `stt.provider` is `faster_whisper` and the package is unavailable, `/stt/transcribe` returns `503` instead of inventing a transcript.
+
 Frontend:
 
 ```powershell
 cd frontend
 npm run dev
 ```
+
+Recommended combined dev startup:
+
+```powershell
+.venv\Scripts\python -m local_assistant.dev
+```
+
+`local_assistant.dev` finds free ports starting at backend `8000` and frontend `5173`, starts both processes, and sets `VITE_API_BASE` so the frontend targets the selected backend port.
 
 ## Notes
 

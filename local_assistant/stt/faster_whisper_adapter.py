@@ -6,7 +6,12 @@ import tempfile
 from pathlib import Path
 
 from local_assistant.config import STTConfig
-from local_assistant.stt.base import STTAdapter, TranscriptionResult
+from local_assistant.stt.base import (
+    STTAdapter,
+    STTUnavailableError,
+    TranscriptionFailedError,
+    TranscriptionResult,
+)
 
 
 class FasterWhisperSTTAdapter(STTAdapter):
@@ -48,13 +53,18 @@ class FasterWhisperSTTAdapter(STTAdapter):
 
     async def transcribe(self, audio_bytes: bytes, filename: str = "input.webm") -> TranscriptionResult:
         if not self.is_available():
-            raise RuntimeError("faster-whisper is not installed")
+            raise STTUnavailableError(
+                "faster-whisper is not installed. Install requirements-ml.txt or set stt.provider to mock for debug mode."
+            )
         suffix = Path(filename).suffix or ".webm"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
             handle.write(audio_bytes)
             temp_path = Path(handle.name)
         try:
             return await asyncio.to_thread(self._transcribe_file, temp_path)
+        except Exception as exc:
+            self._load_error = str(exc)
+            raise TranscriptionFailedError(f"faster-whisper transcription failed: {exc}") from exc
         finally:
             temp_path.unlink(missing_ok=True)
 
