@@ -59,12 +59,13 @@ def venv_python() -> Path:
     return VENV / "bin" / "python"
 
 
-def check_system_tool(name: str, install_hint: str) -> None:
+def check_system_tool(name: str, install_hint: str) -> bool:
     if shutil.which(name):
         print(f"{name}: found")
-    else:
-        print(f"{name}: missing")
-        print(f"  {install_hint}")
+        return True
+    print(f"{name}: missing")
+    print(f"  {install_hint}")
+    return False
 
 
 def npm_command() -> list[str] | None:
@@ -99,44 +100,14 @@ def maybe_install_chatterbox(python_exe: Path, enabled: bool) -> None:
     run([str(python_exe), "-m", "pip", "install", "chatterbox-tts"], check=False)
 
 
-def install_optional_ml(python_exe: Path) -> None:
-    optional_groups = [
-        ["faster-whisper>=1.0.0"],
-        ["kokoro>=0.9.4", "soundfile", "misaki[en]>=0.9.4"],
-    ]
-    for packages in optional_groups:
-        run([str(python_exe), "-m", "pip", "install", *packages], check=False)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Install the local voice-to-voice assistant.")
-    parser.add_argument("--skip-ml", action="store_true", help="Skip faster-whisper and Kokoro package installation.")
-    parser.add_argument("--skip-model-download", action="store_true", help="Do not pull Ollama models.")
-    parser.add_argument("--with-chatterbox", action="store_true", help="Try to install Chatterbox even if hardware is not ideal.")
-    args = parser.parse_args()
-
-    python_cmd = choose_python()
-    if not VENV.exists():
-        run([*python_cmd, "-m", "venv", str(VENV)])
-    python_exe = venv_python()
-
+def install_requirements(python_exe: Path, skip_ml: bool) -> None:
     run([str(python_exe), "-m", "pip", "install", "--upgrade", "pip"])
-    run([str(python_exe), "-m", "pip", "install", "-r", "requirements.txt"])
-    if not args.skip_ml:
-        install_optional_ml(python_exe)
+    run([str(python_exe), "-m", "pip", "install", "-r", "requirements.txt", "-r", "requirements-dev.txt"])
+    if not skip_ml:
+        run([str(python_exe), "-m", "pip", "install", "-r", "requirements-ml.txt"], check=False)
 
-    check_system_tool("ffmpeg", "Install ffmpeg and ensure it is on PATH. Windows: winget install Gyan.FFmpeg")
-    check_system_tool(
-        "espeak-ng",
-        "Install espeak-ng for Kokoro G2P fallback. Windows: use the espeak-ng MSI from the official releases.",
-    )
 
-    npm = npm_command()
-    if npm:
-        run([*npm, "install"], cwd=ROOT / "frontend")
-    else:
-        print("npm not found. Install Node.js/npm before running the web frontend.")
-
+def configure_runtime(python_exe: Path) -> None:
     run(
         [
             str(python_exe),
@@ -151,10 +122,52 @@ def main() -> None:
         ]
     )
 
+
+def run_validation(python_exe: Path, npm: list[str] | None, *, skip_frontend_checks: bool) -> None:
+    run([str(python_exe), "-m", "local_assistant.healthcheck"], check=False)
+    run([str(python_exe), "-m", "pytest"])
+    if skip_frontend_checks:
+        return
+    if npm:
+        run([*npm, "run", "build"], cwd=ROOT / "frontend")
+    else:
+        print("Skipping frontend build checks because npm was not found.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Install and validate the local voice-to-voice assistant in one script.")
+    parser.add_argument("--skip-ml", action="store_true", help="Skip faster-whisper and Kokoro package installation.")
+    parser.add_argument("--skip-model-download", action="store_true", help="Do not pull Ollama models.")
+    parser.add_argument("--with-chatterbox", action="store_true", help="Try to install Chatterbox even if hardware is not ideal.")
+    parser.add_argument("--skip-checks", action="store_true", help="Skip post-install pytest and frontend build checks.")
+    parser.add_argument("--skip-frontend-checks", action="store_true", help="Skip npm run build validation.")
+    args = parser.parse_args()
+
+    python_cmd = choose_python()
+    if not VENV.exists():
+        run([*python_cmd, "-m", "venv", str(VENV)])
+    python_exe = venv_python()
+
+    install_requirements(python_exe, args.skip_ml)
+
+    check_system_tool("ffmpeg", "Install ffmpeg and ensure it is on PATH. Windows: winget install Gyan.FFmpeg")
+    check_system_tool(
+        "espeak-ng",
+        "Install espeak-ng for Kokoro G2P fallback. Windows: use the espeak-ng MSI from the official releases.",
+    )
+
+    npm = npm_command()
+    if npm:
+        run([*npm, "install"], cwd=ROOT / "frontend")
+    else:
+        print("npm not found. Install Node.js/npm before running the web frontend.")
+
+    configure_runtime(python_exe)
     maybe_pull_ollama_model("qwen3:4b-instruct", args.skip_model_download)
     maybe_install_chatterbox(python_exe, args.with_chatterbox)
 
-    run([str(python_exe), "-m", "local_assistant.healthcheck"], check=False)
+    if not args.skip_checks:
+        run_validation(python_exe, npm, skip_frontend_checks=args.skip_frontend_checks)
 
     backend_cmd = f"{python_exe} -m local_assistant.server"
     frontend_cmd = "cd frontend; npm run dev"
