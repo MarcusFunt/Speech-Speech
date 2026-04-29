@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -133,11 +135,30 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
     return AppConfig.model_validate(raw)
 
 
-def save_config(config: AppConfig, config_path: str | Path | None = None) -> Path:
+def backup_config(config_path: str | Path | None = None) -> Path | None:
+    path = _resolve_config_path(config_path)
+    if not path.exists():
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup_path = path.with_name(f"{path.name}.{stamp}.bak")
+    shutil.copy2(path, backup_path)
+    return backup_path
+
+
+def save_config(
+    config: AppConfig,
+    config_path: str | Path | None = None,
+    *,
+    create_backup: bool = False,
+) -> Path:
     path = _resolve_config_path(config_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
+    if create_backup:
+        backup_config(path)
+    temp_path = path.with_name(f".{path.name}.tmp")
+    with temp_path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(config.model_dump(mode="json"), handle, sort_keys=False)
+    temp_path.replace(path)
     return path
 
 

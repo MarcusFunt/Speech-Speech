@@ -29,20 +29,20 @@ A finished v1 should meet these criteria:
 
 ## Phase 0 - Fix Immediate Blockers
 
-- [ ] Fix `install.py` before relying on the documented Quick Start.
+- [x] Fix `install.py` before relying on the documented Quick Start.
   - Current issue: `args.skip_checks` and `args.skip_frontend_checks` are referenced but never added to the parser.
   - Current issue: `run_validation(...)` is referenced but not defined.
   - Decide whether installer validation should exist now or be removed until implemented.
   - Add tests or a smoke check that `python install.py --help` and at least `python install.py --skip-ml --skip-model-download` do not crash before doing useful work.
-- [ ] Decide the supported Python matrix for v1.
+- [x] Decide the supported Python matrix for v1.
   - README recommends Python 3.11 for real local speech.
   - `pyproject.toml` allows Python 3.10 through 3.13.
   - Installer allows debug mode on newer Python but blocks local ML packages on Python 3.13.
   - Document this as a support table instead of scattering it across install notes.
-- [ ] Decide whether v1 supports Windows only or Windows plus macOS/Linux.
+- [x] Decide whether v1 supports Windows only or Windows plus macOS/Linux.
   - The current Quick Start is Windows-oriented.
   - If macOS/Linux are supported, add install commands and validate dependencies there.
-- [ ] Make `config.yaml` recovery safe.
+- [x] Make `config.yaml` recovery safe.
   - Add backup-on-save for config changes.
   - Add reset-to-autoselected-config action.
   - Validate config before replacing live services.
@@ -364,4 +364,3 @@ A finished v1 should meet these criteria:
 - Session summarization.
 - Better memory retrieval.
 - Input device calibration and optional VAD.
-

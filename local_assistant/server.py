@@ -119,8 +119,9 @@ async def get_services() -> Services:
 async def replace_services(config: AppConfig) -> Services:
     global _services
     async with _services_lock:
-        save_config(config, DEFAULT_CONFIG_PATH)
-        _services = create_services(config)
+        next_services = create_services(config)
+        save_config(config, DEFAULT_CONFIG_PATH, create_backup=True)
+        _services = next_services
         return _services
 
 
@@ -171,6 +172,14 @@ async def post_config(payload: AppConfig) -> dict:
 
 @app.post("/config/autoselect")
 async def autoselect_config() -> dict:
+    profile = probe_hardware()
+    config = select_config(profile)
+    services = await replace_services(config)
+    return services.config.model_dump(mode="json")
+
+
+@app.post("/config/reset")
+async def reset_config() -> dict:
     profile = probe_hardware()
     config = select_config(profile)
     services = await replace_services(config)

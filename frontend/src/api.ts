@@ -37,6 +37,12 @@ export async function saveConfig(config: AppConfig): Promise<AppConfig> {
   });
 }
 
+export async function resetConfig(): Promise<AppConfig> {
+  return jsonFetch<AppConfig>("/config/reset", {
+    method: "POST"
+  });
+}
+
 export async function transcribe(blob: Blob): Promise<{ text: string; backend: string }> {
   const body = new FormData();
   body.append("file", blob, "push-to-talk.webm");

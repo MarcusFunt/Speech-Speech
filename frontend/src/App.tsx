@@ -22,6 +22,7 @@ import {
   getHealth,
   getMemory,
   interruptBackend,
+  resetConfig,
   saveConfig,
   transcribe,
   writeProfile
@@ -310,10 +311,28 @@ export function App() {
 
   async function persistVoiceSettings() {
     if (!config) return;
-    const saved = await saveConfig(config);
-    setConfig(saved);
-    const nextHealth = await getHealth();
-    setHealth(nextHealth);
+    try {
+      setError(null);
+      const saved = await saveConfig(config);
+      setConfig(saved);
+      const nextHealth = await getHealth();
+      setHealth(nextHealth);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function resetToAutoselectedConfig() {
+    try {
+      setError(null);
+      const nextConfig = await resetConfig();
+      const [nextHealth, nextHardware] = await Promise.all([getHealth(), getHardware()]);
+      setConfig(nextConfig);
+      setHealth(nextHealth);
+      setHardware(nextHardware);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function persistProfile(key: string, value: string) {
@@ -502,6 +521,12 @@ export function App() {
               <dd>{config ? `${config.llm.provider} ${config.llm.model}` : "loading"}</dd>
             </div>
           </dl>
+          <div className="panel-actions">
+            <button className="secondary-button" onClick={() => void resetToAutoselectedConfig()} title="Reset config to the auto-selected hardware profile">
+              <Settings2 size={16} />
+              Auto-select
+            </button>
+          </div>
         </section>
 
         <section className="panel">

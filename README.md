@@ -4,7 +4,7 @@ A fully local voice-to-voice assistant prototype focused on natural spoken inter
 
 ## Quick Start
 
-For real local speech on Windows, use Python 3.11. Kokoro currently publishes the needed wheels for Python 3.10-3.12, not Python 3.13.
+For v1, the supported non-developer install path is Windows 10/11. Use Python 3.11 for real local speech.
 
 ```powershell
 winget install -e --id Python.Python.3.11
@@ -23,6 +23,17 @@ If you only want mock/debug mode on Python 3.13, run:
 ```powershell
 python install.py --skip-ml
 ```
+
+## Supported Runtime
+
+| Runtime | v1 support | Notes |
+| --- | --- | --- |
+| Windows 10/11 | Supported | Documented install path, tested target for local speech. |
+| macOS/Linux | Source/dev mode only | The code is intended to be portable, but v1 installer validation is Windows-first until these paths are tested end to end. |
+| Python 3.10 | Supported | App and local ML packages are allowed. |
+| Python 3.11 | Recommended | Preferred path for Kokoro, faster-whisper, and Chatterbox experiments. |
+| Python 3.12 | Supported | App and local ML packages are allowed. |
+| Python 3.13 | Debug/mock only | Run `python install.py --skip-ml`; local ML packages are not installed. |
 
 ## Local Runtime Defaults
 
@@ -53,6 +64,7 @@ Policy:
 - `GET /config`
 - `POST /config`
 - `POST /config/autoselect`
+- `POST /config/reset`
 - `POST /stt/transcribe`
 - `POST /conversation/message`
 - `WS /conversation/stream`

@@ -361,6 +361,12 @@ textarea {
   font-weight: 700;
 }
 
+.panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 .memory-add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

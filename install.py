@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent
 VENV = ROOT / ".venv"
 ML_MIN_PYTHON = (3, 10)
 ML_MAX_PYTHON = (3, 13)
+BASE_MAX_PYTHON = (3, 14)
 
 
 def run(command: list[str], *, cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess:
@@ -45,7 +46,7 @@ def supports_ml_python(version: tuple[int, int] | None) -> bool:
 
 
 def supports_base_python(version: tuple[int, int] | None) -> bool:
-    return version is not None and version >= ML_MIN_PYTHON
+    return version is not None and ML_MIN_PYTHON <= version < BASE_MAX_PYTHON
 
 
 def print_ml_python_error(version: tuple[int, int] | None, executable: str) -> None:
@@ -67,7 +68,7 @@ def choose_python(*, install_ml: bool) -> list[str]:
     if not install_ml and supports_base_python(current):
         if current and current >= ML_MAX_PYTHON:
             print(
-                "Warning: Python 3.13+ is supported only for --skip-ml debug installs. "
+                "Warning: Python 3.13 is supported only for --skip-ml debug installs. "
                 "Use Python 3.11 for Kokoro/faster-whisper."
             )
         return [sys.executable]
@@ -79,7 +80,7 @@ def choose_python(*, install_ml: bool) -> list[str]:
         print_ml_python_error(current, sys.executable)
         raise SystemExit(1)
     if not supports_base_python(current):
-        print("Python 3.10 or newer is required.")
+        print("Python 3.10 through 3.13 is required for debug installs.")
         raise SystemExit(1)
     return [sys.executable]
 
@@ -151,12 +152,36 @@ def install_optional_ml(python_exe: Path) -> None:
         run([str(python_exe), "-m", "pip", "install", *packages], check=False)
 
 
-def main() -> None:
+def run_validation(python_exe: Path, npm: list[str] | None, *, skip_frontend_checks: bool = False) -> None:
+    print("\nRunning install validation...")
+    run(
+        [
+            str(python_exe),
+            "-c",
+            (
+                "from local_assistant.config import load_config; "
+                "from local_assistant.server import create_services; "
+                "config=load_config(); create_services(config); "
+                "print('Backend service validation passed')"
+            ),
+        ]
+    )
+    if skip_frontend_checks:
+        print("Skipping frontend validation.")
+    elif npm:
+        run([*npm, "run", "build"], cwd=ROOT / "frontend")
+    else:
+        print("Skipping frontend validation because npm was not found.")
+
+
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Install the local voice-to-voice assistant.")
     parser.add_argument("--skip-ml", action="store_true", help="Skip faster-whisper and Kokoro package installation.")
     parser.add_argument("--skip-model-download", action="store_true", help="Do not pull Ollama models.")
     parser.add_argument("--with-chatterbox", action="store_true", help="Try to install Chatterbox even if hardware is not ideal.")
-    args = parser.parse_args()
+    parser.add_argument("--skip-checks", action="store_true", help="Skip post-install backend and frontend validation.")
+    parser.add_argument("--skip-frontend-checks", action="store_true", help="Skip the frontend build validation only.")
+    args = parser.parse_args(argv)
 
     install_ml = not args.skip_ml
     python_cmd = choose_python(install_ml=install_ml)
@@ -190,7 +215,7 @@ def main() -> None:
                 "from local_assistant.hardware_probe import probe_hardware; "
                 "from local_assistant.model_selector import select_config; "
                 "from local_assistant.config import save_config; "
-                "config=select_config(probe_hardware()); save_config(config); "
+                "config=select_config(probe_hardware()); save_config(config, create_backup=True); "
                 "print(config.model_dump_json(indent=2))"
             ),
         ]
