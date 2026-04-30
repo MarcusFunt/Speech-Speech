@@ -6,8 +6,4 @@ CONFIG_DIR="$(dirname "${CONFIG_PATH}")"
 
 mkdir -p "${CONFIG_DIR}" /data
 
-if [ ! -f "${CONFIG_PATH}" ]; then
-    cp /app/config.docker.yaml "${CONFIG_PATH}"
-fi
-
 exec "$@"

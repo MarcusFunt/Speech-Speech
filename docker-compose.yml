@@ -3,8 +3,8 @@ services:
     build:
       context: .
       args:
-        INSTALL_ML: "true"
-        TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
+        INSTALL_ML: ${INSTALL_ML:-true}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     ports:
       - "8000:8000"
     environment:

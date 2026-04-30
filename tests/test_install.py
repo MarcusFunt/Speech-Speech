@@ -19,6 +19,7 @@ def test_install_help_exposes_validation_flags():
     assert result.returncode == 0
     assert "--skip-checks" in result.stdout
     assert "--skip-frontend-checks" in result.stdout
+    assert "--torch-index-url" in result.stdout
 
 
 def test_skip_ml_skip_model_download_smoke(monkeypatch, tmp_path):
@@ -56,3 +57,11 @@ def test_skip_ml_skip_model_download_smoke(monkeypatch, tmp_path):
     assert any(command[1:3] == ["-m", "venv"] for command, _cwd, _check in calls)
     assert model_download_skips == [True]
     assert validations == [(tmp_path / ".venv-python", None, False)]
+
+
+def test_default_torch_index_url_prefers_cuda_when_nvidia_is_present(monkeypatch):
+    monkeypatch.setattr(install, "has_nvidia_gpu", lambda: True)
+    assert install.default_torch_index_url() == install.DEFAULT_TORCH_CUDA_INDEX_URL
+
+    monkeypatch.setattr(install, "has_nvidia_gpu", lambda: False)
+    assert install.default_torch_index_url() == install.DEFAULT_TORCH_CPU_INDEX_URL

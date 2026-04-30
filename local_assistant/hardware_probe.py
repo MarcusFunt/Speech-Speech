@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 
 GpuBackend = Literal["cuda", "rocm", "mps", "cpu", "unknown"]
 RecommendedProfile = Literal["low", "medium", "high", "experimental"]
+LINUX_MEMINFO_PATH = Path("/proc/meminfo")
 
 
 class HardwareProfile(BaseModel):
@@ -33,6 +35,7 @@ class HardwareProfile(BaseModel):
     apple_silicon: bool = False
     mps_available: bool = False
     torch_gpu_available: bool = False
+    torch_cuda_build: str | None = None
     torch_device_count: int = 0
     gpu_backend: GpuBackend = "unknown"
     vram_gb: float | None = None
@@ -89,7 +92,8 @@ def _ram_gb() -> float | None:
         import psutil
 
         return round(psutil.virtual_memory().total / (1024**3), 2)
-    if platform.system().lower() == "windows":
+    system = platform.system().lower()
+    if system == "windows":
         result = _run_command(
             [
                 "powershell",
@@ -100,6 +104,13 @@ def _ram_gb() -> float | None:
         )
         if result.returncode == 0 and result.stdout.strip().isdigit():
             return round(int(result.stdout.strip()) / (1024**3), 2)
+    if system == "linux":
+        try:
+            total_kb = parse_linux_meminfo_total_kb(LINUX_MEMINFO_PATH.read_text(encoding="utf-8"))
+        except OSError:
+            total_kb = None
+        if total_kb is not None:
+            return round(total_kb / (1024**2), 2)
     return None
 
 
@@ -117,6 +128,17 @@ def parse_nvidia_smi_csv(output: str) -> tuple[str | None, float | None]:
         except ValueError:
             vram_gb = None
     return name, vram_gb
+
+
+def parse_linux_meminfo_total_kb(output: str) -> int | None:
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("MemTotal:"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            return int(parts[1])
+    return None
 
 
 def _nvidia_info(runner: CommandRunner) -> tuple[bool, str | None, float | None, list[str]]:
@@ -163,13 +185,14 @@ def _windows_video_names(runner: CommandRunner) -> list[str]:
     return []
 
 
-def _torch_info() -> tuple[bool, int, bool, bool, list[str]]:
+def _torch_info() -> tuple[bool, str | None, int, bool, bool, str | None, float | None, list[str]]:
     notes: list[str] = []
     if not importlib.util.find_spec("torch"):
-        return False, 0, False, False, ["torch is not installed"]
+        return False, None, 0, False, False, None, None, ["torch is not installed"]
     try:
         import torch
 
+        cuda_build = getattr(torch.version, "cuda", None)
         cuda_available = bool(torch.cuda.is_available())
         device_count = int(torch.cuda.device_count()) if cuda_available else 0
         mps_available = bool(
@@ -178,10 +201,21 @@ def _torch_info() -> tuple[bool, int, bool, bool, list[str]]:
             and torch.backends.mps.is_built()
         )
         rocm_available = bool(getattr(torch.version, "hip", None))
-        return cuda_available or mps_available or rocm_available, device_count, mps_available, rocm_available, notes
+        cuda_device_name: str | None = None
+        cuda_vram_gb: float | None = None
+        if cuda_available and device_count > 0:
+            try:
+                properties = torch.cuda.get_device_properties(0)
+                cuda_device_name = str(getattr(properties, "name", "") or "").strip() or None
+                total_memory = getattr(properties, "total_memory", None)
+                if isinstance(total_memory, (int, float)) and total_memory > 0:
+                    cuda_vram_gb = round(float(total_memory) / (1024**3), 2)
+            except Exception as exc:  # pragma: no cover - depends on native torch install
+                notes.append(f"torch CUDA device probe failed: {exc}")
+        return cuda_available, cuda_build, device_count, mps_available, rocm_available, cuda_device_name, cuda_vram_gb, notes
     except Exception as exc:  # pragma: no cover - depends on native torch install
         notes.append(f"torch probe failed: {exc}")
-        return False, 0, False, False, notes
+        return False, None, 0, False, False, None, None, notes
 
 
 def choose_gpu_backend(
@@ -222,10 +256,34 @@ def probe_hardware(runner: CommandRunner = _run_command) -> HardwareProfile:
     video_names = _windows_video_names(runner)
     amd_gpu = any("amd" in name.lower() or "radeon" in name.lower() for name in video_names)
     apple_silicon = platform.system().lower() == "darwin" and platform.machine().lower() in {"arm64", "aarch64"}
-    torch_gpu_available, torch_device_count, mps_available, rocm_available, torch_notes = _torch_info()
+    (
+        torch_cuda_available,
+        torch_cuda_build,
+        torch_device_count,
+        mps_available,
+        rocm_available,
+        torch_cuda_name,
+        torch_cuda_vram_gb,
+        torch_notes,
+    ) = _torch_info()
     notes.extend(torch_notes)
 
-    cuda_available = bool(nvidia_gpu and torch_gpu_available and torch_device_count > 0)
+    if torch_cuda_available:
+        nvidia_gpu = True
+        if not nvidia_name:
+            nvidia_name = torch_cuda_name
+        if nvidia_vram_gb is None:
+            nvidia_vram_gb = torch_cuda_vram_gb
+
+    cuda_available = bool(torch_cuda_available and torch_device_count > 0)
+    torch_gpu_available = bool(cuda_available or mps_available or rocm_available)
+    if nvidia_gpu and not cuda_available:
+        if torch_cuda_build:
+            notes.append(
+                f"NVIDIA GPU detected, but torch CUDA {torch_cuda_build} cannot access a CUDA device in this runtime"
+            )
+        else:
+            notes.append("NVIDIA GPU detected, but the installed torch build has no CUDA support")
     gpu_backend = choose_gpu_backend(
         nvidia_gpu=nvidia_gpu,
         cuda_available=cuda_available,
@@ -253,13 +311,14 @@ def probe_hardware(runner: CommandRunner = _run_command) -> HardwareProfile:
         apple_silicon=apple_silicon,
         mps_available=mps_available,
         torch_gpu_available=torch_gpu_available,
+        torch_cuda_build=torch_cuda_build,
         torch_device_count=torch_device_count,
         gpu_backend=gpu_backend,
         vram_gb=vram_gb,
         ffmpeg_installed=shutil.which("ffmpeg") is not None,
         espeak_installed=shutil.which("espeak-ng") is not None or shutil.which("espeak") is not None,
         recommended_profile=recommend_profile(gpu_backend, vram_gb, ram_gb),
-        notes=notes,
+        notes=list(dict.fromkeys(notes)),
     )
 
 

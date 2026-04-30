@@ -14,6 +14,8 @@ VENV = ROOT / ".venv"
 ML_MIN_PYTHON = (3, 10)
 ML_MAX_PYTHON = (3, 13)
 BASE_MAX_PYTHON = (3, 14)
+DEFAULT_TORCH_CPU_INDEX_URL = "https://download.pytorch.org/whl/cpu"
+DEFAULT_TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu126"
 
 
 def run(command: list[str], *, cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess:
@@ -128,6 +130,30 @@ def maybe_install_chatterbox(python_exe: Path, enabled: bool) -> None:
     run([str(python_exe), "-m", "pip", "install", "chatterbox-tts"], check=False)
 
 
+def has_nvidia_gpu() -> bool:
+    if not shutil.which("nvidia-smi"):
+        return False
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def default_torch_index_url() -> str:
+    return DEFAULT_TORCH_CUDA_INDEX_URL if has_nvidia_gpu() else DEFAULT_TORCH_CPU_INDEX_URL
+
+
+def install_torch(python_exe: Path, index_url: str) -> None:
+    print(f"Installing torch from: {index_url}")
+    run([str(python_exe), "-m", "pip", "install", "torch", "--index-url", index_url], check=False)
+
+
 def ensure_venv_python_supported(python_exe: Path, *, install_ml: bool) -> None:
     version = python_version(str(python_exe))
     if install_ml and not supports_ml_python(version):
@@ -178,6 +204,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--with-chatterbox", action="store_true", help="Deprecated: Chatterbox is attempted by default with local ML installs.")
     parser.add_argument("--skip-checks", action="store_true", help="Skip post-install backend and frontend validation.")
     parser.add_argument("--skip-frontend-checks", action="store_true", help="Skip the frontend build validation only.")
+    parser.add_argument(
+        "--torch-index-url",
+        help=(
+            "PyTorch wheel index URL. Defaults to CUDA wheels when an NVIDIA GPU is detected, "
+            "otherwise CPU wheels."
+        ),
+    )
     args = parser.parse_args(argv)
 
     install_ml = not args.skip_ml
@@ -190,6 +223,7 @@ def main(argv: list[str] | None = None) -> None:
     run([str(python_exe), "-m", "pip", "install", "--upgrade", "pip"])
     run([str(python_exe), "-m", "pip", "install", "-r", "requirements.txt"])
     if install_ml:
+        install_torch(python_exe, args.torch_index_url or default_torch_index_url())
         install_optional_ml(python_exe)
 
     check_system_tool("ffmpeg", "Install ffmpeg and ensure it is on PATH. Windows: winget install -e --id Gyan.FFmpeg")

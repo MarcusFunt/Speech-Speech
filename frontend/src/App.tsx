@@ -679,6 +679,12 @@ export function App() {
     setMemory(await getMemory());
   }
 
+  const gpuBackend = String(hardware?.gpu_backend ?? config?.hardware_profile?.gpu_backend ?? "unknown");
+  const gpuName = String(hardware?.nvidia_name ?? config?.hardware_profile?.nvidia_name ?? "").trim();
+  const gpuLabel = gpuName && gpuBackend !== "unknown" ? `${gpuBackend} (${gpuName})` : gpuName || gpuBackend;
+  const ramValue = hardware?.ram_gb ?? config?.hardware_profile?.ram_gb;
+  const ramLabel = ramValue === null || ramValue === undefined ? "unknown" : `${String(ramValue)} GB`;
+
   return (
     <main className="app-shell">
       <section className="voice-stage">
@@ -874,11 +880,11 @@ export function App() {
             </div>
             <div>
               <dt>GPU</dt>
-              <dd>{String(hardware?.gpu_backend ?? config?.hardware_profile?.gpu_backend ?? "unknown")}</dd>
+              <dd>{gpuLabel}</dd>
             </div>
             <div>
               <dt>RAM</dt>
-              <dd>{String(hardware?.ram_gb ?? config?.hardware_profile?.ram_gb ?? "unknown")} GB</dd>
+              <dd>{ramLabel}</dd>
             </div>
             <div>
               <dt>STT</dt>

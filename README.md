@@ -18,6 +18,8 @@ Open the frontend URL printed by the dev launcher.
 
 The installer creates `.venv`, installs backend and frontend dependencies, scans hardware, writes `config.yaml`, checks local tools, and uses Ollama as the default local LLM runtime. It attempts to install Chatterbox, Kokoro, and faster-whisper, then reports unavailable optional ML packages through the health endpoint.
 
+On machines with an NVIDIA GPU visible through `nvidia-smi`, `install.py` now installs a CUDA-enabled PyTorch wheel by default. To force a specific PyTorch wheel index, pass `--torch-index-url`.
+
 If you only want mock/debug mode on Python 3.13, run:
 
 ```powershell
@@ -32,7 +34,7 @@ The app can also run as a single Docker container. The image builds the React fr
 docker compose up --build
 ```
 
-Open <http://localhost:8000>. The first start copies `config.docker.yaml` into `docker-config/config.yaml` and stores memory/audio data in `data/`.
+Open <http://localhost:8000>. The first start auto-detects hardware, writes `docker-config/config.yaml`, and stores memory/audio data in `data/`.
 
 By default, the Docker config points Ollama at the host machine through `http://host.docker.internal:11434/v1`. Start Ollama on the host before using the local LLM path:
 
@@ -48,6 +50,14 @@ docker compose up
 ```
 
 That lightweight mode is useful for UI/API checks, but real STT/TTS endpoints need the ML dependencies.
+
+For NVIDIA GPU passthrough, use the GPU override file:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+
+That override switches Docker to a CUDA PyTorch wheel and requests `gpus: all`. If you already created `docker-config/config.yaml` while running CPU-only Docker, either click `Auto-select` in the UI after the container starts or delete `docker-config/config.yaml` before rebuilding so the new hardware profile is written on boot.
 
 ## Supported Runtime
 
