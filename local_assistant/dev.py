@@ -13,6 +13,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from local_assistant.config import load_config
+from local_assistant.llm.ollama import ollama_models_url, ollama_native_models_url
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,18 +55,19 @@ def http_endpoint_reachable(url: str, timeout_s: float = 1.5) -> bool:
         return False
 
 
-def ollama_models_url(base_url: str) -> str:
-    return f"{base_url.rstrip('/')}/models"
+def ollama_health_urls(base_url: str) -> list[str]:
+    return list(dict.fromkeys([ollama_models_url(base_url), ollama_native_models_url(base_url)]))
 
 
 def maybe_start_ollama(creationflags: int = 0) -> subprocess.Popen | None:
     config = load_config()
     if config.llm.provider != "ollama":
         return None
-    health_url = ollama_models_url(config.llm.base_url)
-    if http_endpoint_reachable(health_url):
-        print(f"Ollama:  already reachable at {health_url}")
-        return None
+    health_urls = ollama_health_urls(config.llm.base_url)
+    for health_url in health_urls:
+        if http_endpoint_reachable(health_url):
+            print(f"Ollama:  already reachable at {health_url}")
+            return None
     ollama = shutil.which("ollama")
     if not ollama:
         print("Ollama:  not found on PATH; backend will use its mock LLM fallback if the endpoint is unreachable.")
@@ -80,9 +82,10 @@ def maybe_start_ollama(creationflags: int = 0) -> subprocess.Popen | None:
         if process.poll() is not None:
             print(f"Ollama:  exited with code {process.returncode}; backend may use its mock LLM fallback.")
             return None
-        if http_endpoint_reachable(health_url):
-            print(f"Ollama:  started at {health_url}")
-            return process
+        for health_url in health_urls:
+            if http_endpoint_reachable(health_url):
+                print(f"Ollama:  started at {health_url}")
+                return process
         time.sleep(0.5)
     print("Ollama:  start requested, but the API did not become reachable before timeout.")
     return process

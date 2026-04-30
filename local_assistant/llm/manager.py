@@ -5,6 +5,7 @@ from typing import AsyncIterator
 from local_assistant.config import LLMConfig
 from local_assistant.llm.base import LLMAdapter
 from local_assistant.llm.mock import MockLLMAdapter
+from local_assistant.llm.ollama import OllamaLLMAdapter
 from local_assistant.llm.openai_compatible import OpenAICompatibleLLMAdapter
 
 
@@ -14,7 +15,9 @@ class LLMManager(LLMAdapter):
     def __init__(self, config: LLMConfig):
         self.config = config
         self.primary: LLMAdapter
-        if config.provider in {"ollama", "openai_compatible"}:
+        if config.provider == "ollama":
+            self.primary = OllamaLLMAdapter(config)
+        elif config.provider == "openai_compatible":
             self.primary = OpenAICompatibleLLMAdapter(config)
         else:
             self.primary = MockLLMAdapter()
