@@ -34,6 +34,7 @@ class ConversationManager:
         self._cancel_event = asyncio.Event()
         self._current_turn_id = str(uuid.uuid4())
         turn_id = self._current_turn_id
+        first_token_at: float | None = None
         first_audio_at: float | None = None
         started_at = time.perf_counter()
         assistant_parts: list[str] = []
@@ -63,8 +64,13 @@ class ConversationManager:
                 if self._cancel_event.is_set():
                     yield {"type": "interrupted", "turn_id": turn_id}
                     return
+                if first_token_at is None:
+                    first_token_at = time.perf_counter()
                 assistant_parts.append(delta)
-                yield {"type": "text_delta", "delta": delta, "turn_id": turn_id}
+                text_event = {"type": "text_delta", "delta": delta, "turn_id": turn_id}
+                if first_token_at is not None:
+                    text_event["time_to_first_token_ms"] = int((first_token_at - started_at) * 1000)
+                yield text_event
                 for chunk in chunker.feed(delta):
                     async for event in self._speak_chunk(chunk, turn_id):
                         if first_audio_at is None and event["type"] == "audio_chunk":
@@ -87,7 +93,9 @@ class ConversationManager:
             yield {
                 "type": "done",
                 "turn_id": turn_id,
+                "time_to_first_token_ms": int((first_token_at - started_at) * 1000) if first_token_at else None,
                 "time_to_first_audio_ms": int((first_audio_at - started_at) * 1000) if first_audio_at else None,
+                "total_turn_time_ms": int((time.perf_counter() - started_at) * 1000),
             }
         except AssistantError as exc:
             yield {"type": "error", "turn_id": turn_id, **exc.to_payload()}

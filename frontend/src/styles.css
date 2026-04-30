@@ -137,6 +137,10 @@ h2 {
 
 .talk-surface.listening .waveform span {
   background: #a64f37;
+  animation: none;
+  transition:
+    height 80ms ease,
+    opacity 80ms ease;
 }
 
 @keyframes wave {
@@ -185,6 +189,14 @@ h2 {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.key-row label {
+  min-width: 122px;
+}
+
+.key-row select {
+  max-width: 220px;
 }
 
 label {
@@ -436,5 +448,16 @@ textarea {
     flex-wrap: wrap;
     justify-content: center;
     width: calc(100% - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waveform span,
+  .turn.live p::after {
+    animation: none;
+  }
+
+  .ptt-button {
+    transition: none;
   }
 }

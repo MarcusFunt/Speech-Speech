@@ -307,6 +307,11 @@ async def test_conversation_prompt_does_not_duplicate_current_user_turn(tmp_path
     events = [event async for event in conversation.run_turn("current request")]
 
     assert any(event["type"] == "done" for event in events)
+    first_delta = next(event for event in events if event["type"] == "text_delta")
+    done = next(event for event in events if event["type"] == "done")
+    assert isinstance(first_delta["time_to_first_token_ms"], int)
+    assert isinstance(done["time_to_first_token_ms"], int)
+    assert isinstance(done["total_turn_time_ms"], int)
     assert [message for message in llm.messages if message["content"] == "current request"] == [
         {"role": "user", "content": "current request"}
     ]

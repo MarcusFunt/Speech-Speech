@@ -86,5 +86,7 @@ export interface ServerEvent {
   engine?: string;
   voice?: string;
   turn_id?: string;
+  time_to_first_token_ms?: number | null;
   time_to_first_audio_ms?: number | null;
+  total_turn_time_ms?: number | null;
 }
